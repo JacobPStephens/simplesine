@@ -1,3 +1,1 @@
-Dependencies:
-Numpy,
-Sounddevice
+A python synthesizer
