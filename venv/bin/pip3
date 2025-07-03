@@ -1,4 +1,4 @@
-#!/home/jacob/source/synth/venv/bin/python3
+#!/home/jacob/source/simplesine/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

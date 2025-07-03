@@ -46,6 +46,7 @@ class Knobs:
 root = tk.Tk()
 root.title("simplesine")
 root.geometry("800x600+100+50")
+root.resizable(False, False)
 canvas = tk.Canvas(root, width=800,height=600, bg="gray")
 canvas.pack()
 attackBg = canvas.create_oval(49, 49, 101, 101, fill="white", outline="black", width=1.5, tags="attack_tag")
