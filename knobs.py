@@ -5,7 +5,7 @@ os.system('xset r off')
 
 
 
-class Knobs:
+class Dial:
     def __init__(self, arc):
         self.arc = arc
         self.mouse_x: int = 0
@@ -53,10 +53,10 @@ attackBg = canvas.create_oval(49, 49, 101, 101, fill="white", outline="black", w
 attack = canvas.create_arc(50, 50, 100, 100, fill="lightblue", start= 270, extent=-135)
 attackFg = canvas.create_oval(65, 65, 85, 85, fill="black", tags="attack_tag")
 
-knob = Knobs(attack)
-root.bind("<Motion>", knob.mouseMotion)
-root.bind("<ButtonRelease-1>", knob.mouseReleased)
-canvas.tag_bind("attack_tag", "<Button-1>", lambda event: knob.dialClicked(event, "attack"))
+dial = Dial(attack)
+root.bind("<Motion>", dial.mouseMotion)
+root.bind("<ButtonRelease-1>", dial.mouseReleased)
+canvas.tag_bind("attack_tag", "<Button-1>", lambda event: dial.dialClicked(event, "attack"))
 
 
 

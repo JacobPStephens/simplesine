@@ -1,10 +1,14 @@
-import math, threading, os, time
+import tkinter as tk
 import numpy as np
 import sounddevice as sd
-import tkinter as tk
-import utils
+import time, threading, os, utils
 
+
+sampleRate = 44100
+freq = 440
+duration = 5
 os.system('xset r off')
+
 NOTE_TO_PITCH = {
     'a': (-3, 220),
     'a#': (-2,0),
@@ -23,11 +27,16 @@ NOTE_TO_PITCH = {
     'g': (7, 392.0),
     'g#': (8, 0),
     'ab': (8, 0)}
-sampleRate = 48000
-duration = 3
-sines = []
-rawAmps = dict()
-normalizedAmps = dict()
+
+
+
+
+buffer = np.arange(sampleRate * duration)
+wave1 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (261.63 / sampleRate)).reshape(-1, 1)
+wave2 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (329 / sampleRate)).reshape(-1, 1)
+wave3 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (392 / sampleRate)).reshape(-1, 1)
+wave4 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (493 / sampleRate)).reshape(-1, 1)
+
 
 attack = 1
 decay = 0.25
@@ -43,26 +52,93 @@ maxRelease = 8
 minAttack = 0
 maxAttack = 8
 
-class WaveStreamer:
-    def __init__(self, amplitude, freq):
-        self.l = 0
-        self.phase = 0
-        self.amplitude = amplitude
+class Note:
+    def __init__(self, freq):
         self.freq = freq
-        self.stream = sd.OutputStream(samplerate=sampleRate, channels=2, blocksize = 1024, callback=self.streamCallback)
+        self.phase = 0
+        self.start = time.time()
+        self.released = False
+        self.releaseStart = None
 
-    def getNextData(self, frames):
+    def getAmp(self, startVolume, endVolume, ratio):
+        return startVolume + ((endVolume - startVolume) * ratio)
+
+    def envelope(self, t) -> float:
+        assert all([attack, decay, release]) # remove later
+        ''' Returns correct amplitude of note based on time in envelope '''
+        lifetime = t - self.start
+        if not self.released:
+            # attack phase
+            if lifetime < attack:
+                ratio = lifetime / attack
+                return self.getAmp(0, maxVolume, ratio)
+            # decay phase
+            elif lifetime < (attack + decay):
+                ratio = (lifetime - attack) / decay
+                return self.getAmp(maxVolume, sustain, ratio)
+            # sustain phase
+            else:
+                return sustain
+        # release phase
+        else:
+            if not self.releaseStart:
+                self.releaseStart = lifetime
+
+            ratio = (lifetime - self.releaseStart) / release
+            if ratio > 1:
+                return 0
+            return self.getAmp(sustain, 0, ratio)
+
+    def generate(self, frames):
+
+        timesBySample = time.time() + np.arange(frames) / sampleRate
+        amplitudes = np.array([self.envelope(t) for t in timesBySample])
+        
+
+        amp = self.envelope(time.time())
+        # print(f'{sustain=}')
+        # print(f'{amp=}')
         t = (np.arange(frames) + self.phase) / sampleRate
-        block = self.amplitude * np.sin(2 * np.pi * self.freq * t).reshape(-1, 1)
+        signal = amp * np.sin(2 * np.pi * self.freq * t)
         self.phase += frames
-        return block
+        return signal
 
-    def streamCallback(self, outdata, frames, time, status):
-        if status: print(f'{status=}')
-        # get next block of samples and output to stream
-        block = self.getNextData(frames)
-        block = np.clip(block, -1.0, 1.0)
-        outdata[:] = np.repeat(block, 2, axis=1)
+
+def audioCallback(outdata, frames, time, status):
+    if status: 
+        print(f'{status=}')
+    
+    signal = np.zeros(frames, dtype=np.float32)
+    with lock:
+        for note in activeNotes:
+            signal += note.generate(frames)
+
+    outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
+
+
+# buffer = (wave1 + wave2 + wave3 + wave4)
+# sd.play(buffer * 0.1)
+
+activeNotes = []
+lock = threading.Lock()
+
+def onKeyPressed(event):
+    if event.char not in NOTE_TO_PITCH:
+        return
+
+    with lock:
+        freq = NOTE_TO_PITCH[event.char][1]
+        activeNotes.append(Note(freq))
+
+
+def onKeyReleased(event):
+    if event.keysym not in NOTE_TO_PITCH:
+        return
+    freq = NOTE_TO_PITCH[event.keysym][1]
+    with lock:
+        for note in activeNotes:
+            if note.freq == freq and not note.released:
+                note.released = True
 
 class Dials:
     def __init__(self, arc):
@@ -117,100 +193,11 @@ class Dials:
     def mouseReleased(self, event):
         self.activeDial = None
 
-def main():
-    # start
-    normalizeThread = threading.Thread(target=normalize)
-    normalizeThread.start()
-
-    # # update
-    # while True:
-    #     normalizeThread
-    #     for sine in rawAmps:
-    #         print(sine.amplitude)
-    #     ##print(rawAmps)
-    #     time.sleep(1)
-    
-
-def normalize():
-
-    while True:
-        totalRawAmps = sum(rawAmps.values()) + 0.1
-
-        for s in rawAmps:
-            if totalRawAmps <= 1:
-                normalizedAmps[s] = rawAmps[s]
-                
-            else:
-                normalizedAmps[s] = (rawAmps[s] / totalRawAmps)  
-
-            s.amplitude = normalizedAmps[s]
-        ##print(f'Raw   ={rawAmps.values()}')
-        ##print(f'Normal={normalizedAmps.values()}')
-        time.sleep(0.05)
-
-
-def fade(sine: WaveStreamer, note: str, startVolume: float, endVolume:float, duration: float, stage: str):
-    start = time.time()
-    t = 0
-    while t < duration:
-        if (stage == "a" or stage == "d") and ((sine, note) not in sines):
-            return
-        
-        # continuously calculate volume based on time 
-        volume = startVolume + ((endVolume - startVolume) * (t / duration))
-        rawAmps[sine] = volume
-        t = time.time() - start
-        time.sleep(0.01)
-
-    # end behavior based on stage
-    if (stage == "a") and ((sine, note) in sines):
-        decayThread = threading.Thread(target=fade, args=[sine, note, maxVolume, sustain, decay, "d"])
-        decayThread.start()
-    elif (stage == "d"):
-        pass
-        #print("Decay finished")
-    
-    elif (stage == "r"):
-        del rawAmps[sine]
-        del normalizedAmps[sine]  
-        sine.stream.stop()
-
-
-
-def playNote(c: str):
-
-    sine = WaveStreamer(amplitude=0, freq=NOTE_TO_PITCH[c][1])
-    sines.append((sine, c))
-    attackThread = threading.Thread(target=fade, args=[sine, c, 0, maxVolume, attack, "a"])
-    attackThread.start()
-
-    sine.stream.start()
-
-def onKeyPressed(event):
-    c = event.char
-    if (c not in NOTE_TO_PITCH):
-        return
-    
-    playNote(c)
-
-def onKeyReleased(event):
-    for (sine, c) in sines:
-        if c == event.keysym:
-            currentVolume = sine.amplitude
-            releaseThread = threading.Thread(target=fade, args=[sine, c, currentVolume, 0, release, "r"])
-            releaseThread.start()
-            sines.remove((sine, c))
-
-
-
-
-updateThread = threading.Thread(target=main)
-updateThread.start()
-
-
-
-
-
+leftx = 50
+rightx = 100
+offset = 200
+inPad = 15
+textPad = 25
 
 root = tk.Tk()
 root.title("simplesine")
@@ -222,13 +209,6 @@ root.bind("<KeyRelease>", onKeyReleased)
 
 canvas = tk.Canvas(root, width=800,height=600, bg="black")
 canvas.pack()
-
-
-leftx = 50
-rightx = 100
-offset = 200
-inPad = 15
-textPad = 25
 
 attackBg = canvas.create_oval(leftx, 49, rightx, 101, fill="white", outline="black", width=1.5, tags="attack_tag")
 attackArc = canvas.create_arc(leftx, 50, rightx, 100, fill="lightblue", start= 270, extent=-135)
@@ -250,6 +230,10 @@ releaseArc = canvas.create_arc(leftx + offset*3, 50, rightx+offset*3, 100, fill=
 releaseFg = canvas.create_oval((leftx+inPad) + offset*3, 65, (rightx-inPad) + offset*3, 85, fill="black", tags="release_tag")
 releaseText = canvas.create_text((leftx+textPad) + offset*3, 108, text=f'{release:.2f}', fill="white")
 
+stream = sd.OutputStream(samplerate=sampleRate, channels=2, callback=audioCallback)
+
+stream.start()
+
 dial = Dials(attackArc)
 root.bind("<Motion>", dial.mouseMotion)
 root.bind("<ButtonRelease-1>", dial.mouseReleased)
@@ -259,3 +243,4 @@ canvas.tag_bind("sustain_tag", "<Button-1>", lambda event: dial.dialClicked(even
 canvas.tag_bind("release_tag", "<Button-1>", lambda event: dial.dialClicked(event, "release"))
 root.mainloop()
 os.system('xset r on')
+#stream.stop()
