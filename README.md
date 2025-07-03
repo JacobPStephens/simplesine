@@ -1,3 +1,3 @@
 Dependencies:
-Numpy
+Numpy,
 Sounddevice
