@@ -61,7 +61,7 @@ class WaveStreamer:
         if status: print(f'{status=}')
         # get next block of samples and output to stream
         block = self.getNextData(frames)
-        block = np.clip(block, -1.0, 1.0)
+        #block = np.clip(block, -1.0, 1.0)
         outdata[:] = np.repeat(block, 2, axis=1)
 
 class Dials:
