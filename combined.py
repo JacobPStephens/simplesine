@@ -1,13 +1,13 @@
 import tkinter as tk
 import numpy as np
 import sounddevice as sd
-import time, threading, os, utils
+import time, threading, os, utils, mido
 import matplotlib.pyplot as plt
 from limiter import Limiter
 
 
 sampleRate = 44100
-blocksize = 1024 # 0 = default
+blocksize = 0 # 0 = default
 freq = 440
 duration = 5
 os.system('xset r off')
@@ -30,9 +30,6 @@ NOTE_TO_PITCH = {
     'g': (7, 392.0),
     'g#': (8, 0),
     'ab': (8, 0)}
-
-
-
 
 buffer = np.arange(sampleRate * duration)
 wave1 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (261.63 / sampleRate)).reshape(-1, 1)
@@ -59,6 +56,17 @@ maxAttack = 8
 smoothedGain = 0
 alphaAttack = 0.6
 alphaRelease = 0.01
+
+
+
+def midiListener():
+    portName = mido.get_input_names()[1]
+    print(f'{portName=}')
+    with mido.open_input(portName) as inport:
+        print('listening...')
+        for msg in inport:
+            #print('received', msg)
+            onMidiAction(msg)
 
 class Note:
     def __init__(self, freq):
@@ -158,7 +166,7 @@ def audioCallback(outdata, frames, time_info, status):
         smoothedGain = smoothedGain * (1 - alphaRelease) + targetGain * alphaRelease 
 
     #print(f'{targetGain=}')
-    signal *= smoothedGain * 0.9
+    signal *= smoothedGain * 0.5
     peak = np.max(np.abs(signal))
 
     
@@ -182,6 +190,32 @@ activeNotes = []
 signals = []
 lock = threading.Lock()
 
+def onMidiAction(msg):
+
+    if not msg.note:
+        return
+    
+    # cap at c8
+    if msg.note > 108:
+        return
+    
+    with lock: 
+        freq = utils.NOTE_TO_FREQ[msg.note]
+        if msg.type == "note_on":
+            activeNotes.append(Note(freq))
+
+        elif msg.type == "note_off":
+            for note in activeNotes:
+                if note.freq == freq and not note.released:
+                    note.released = True
+
+    print(type(msg))
+    print(len(msg))
+    # with lock:
+    #     freq = NOTE_TO_FREQ[msg.note]
+    print(msg, "on midi action")
+    pass
+
 def onKeyPressed(event):
     if event.char not in NOTE_TO_PITCH:
         return
@@ -189,6 +223,9 @@ def onKeyPressed(event):
     with lock:
         freq = NOTE_TO_PITCH[event.char][1]
         activeNotes.append(Note(freq))
+
+
+
 
 
 def onKeyReleased(event):
@@ -299,6 +336,9 @@ releaseDesc = canvas.create_text((leftx+textPad) + offset*3, 120, text=f'time to
 
 stream = sd.OutputStream(samplerate=sampleRate, channels=2, callback=audioCallback, blocksize=blocksize)
 stream.start()
+
+midiThread = threading.Thread(target=midiListener)
+midiThread.start()
 
 dial = Dials(attackArc)
 root.bind("<Motion>", dial.mouseMotion)
