@@ -7,7 +7,7 @@ from limiter import Limiter
 
 
 sampleRate = 44100
-blocksize = 0 # default
+blocksize = 1024 # 0 = default
 freq = 440
 duration = 5
 os.system('xset r off')
@@ -41,12 +41,12 @@ wave3 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (392 / sampleRate)
 wave4 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (493 / sampleRate)).reshape(-1, 1)
 
 
-lim = Limiter(0.9, 20)
+lim = Limiter(0.7, 20)
 attack = 1
 decay = 0.25
 minDecay = 1e-9
 maxDecay = 5
-maxVolume = 2 #utils.decibelsToAmplitude(-2)
+maxVolume = utils.decibelsToAmplitude(-3)
 sustain = utils.decibelsToAmplitude(-5)
 minSustain = 0
 maxSustain = maxVolume
@@ -55,6 +55,10 @@ minRelease = 1e-9
 maxRelease = 8
 minAttack = 1e-9
 maxAttack = 8
+
+smoothedGain = 0
+alphaAttack = 0.6
+alphaRelease = 0.01
 
 class Note:
     def __init__(self, freq):
@@ -113,39 +117,61 @@ class Note:
         phaseIncrement = 2 * np.pi * self.freq / sampleRate # radians per sample travelled
         phases = np.arange(frames) * phaseIncrement + self.phase
         signal = amplitudes * np.sin(phases)
+        # if activeNotes:
+        #     signal = signal * 1 / len(activeNotes) 
 
         self.phase = (self.phase + frames * phaseIncrement) % (2 * np.pi)
-
-        # t = (np.arange(frames) + self.phase) / sampleRate
-        # signal = amplitudes * np.sin(2 * np.pi * self.freq * t)
-    
-        # modded by total number of samples in one cycle. 
-        # Unit of phase here is samples (not radians)
-        # self.phase = (self.phase + frames) % (1/self.freq * sampleRate)
 
         return signal
 
 
 
-def normalize(signal):
-    maxPoint = np.max(np.abs(signal))
-    if maxPoint > 1:
-        signal = signal / maxPoint
-    return signal
-
 def audioCallback(outdata, frames, time_info, status):
     if status: 
         print(f'{status=}')
-    #print(stream.cpu_load)
+    
+    if (stream.cpu_load > 0.2):
+        print(f'cpu {stream.cpu_load}')
     signal = np.zeros(frames, dtype=np.float32)
     with lock:
         startTime = time.time()
-        for note in activeNotes:
+        for note in activeNotes[:]:
             if note.dead:
                 activeNotes.remove(note)
-            signal += note.generate(frames, startTime)
+                continue
+            signal = signal + note.generate(frames, startTime)
+            #signal = lim.process(signal)
+            #signal = normalize(signal, note.generate(frames, startTime)) 
 
-    #signal = lim.process(signal)
+    peak = np.max(np.abs(signal)) + 1e-10
+    #print(f'rawPeak={peak}')
+    if peak > 1:
+        targetGain = 1 / peak
+    else:
+        targetGain = 1     
+
+    global smoothedGain
+
+    if targetGain < smoothedGain:
+        smoothedGain = smoothedGain * (1 - alphaAttack) + targetGain * alphaAttack 
+    else:
+        smoothedGain = smoothedGain * (1 - alphaRelease) + targetGain * alphaRelease 
+
+    #print(f'{targetGain=}')
+    signal *= smoothedGain * 0.9
+    peak = np.max(np.abs(signal))
+
+    
+    if peak > 1:
+        print(f"clip {peak}")
+        #np.clip(signal, -1.0, 1.0)
+    #print(f'{peak=}')
+
+    # peak = np.max(np.abs(signal))
+    # if peak > 1:
+    #     signal = signal / (peak)
+    #signal = np.tanh(signal) 
+
     outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
 
 
@@ -153,6 +179,7 @@ def audioCallback(outdata, frames, time_info, status):
 # sd.play(buffer * 0.1)
 #plt.ion()
 activeNotes = []
+signals = []
 lock = threading.Lock()
 
 def onKeyPressed(event):
@@ -204,12 +231,12 @@ class Dials:
         if self.activeDial == "attack":
             attack = minAttack + (maxAttack - minAttack) * (abs(arcAngle) / 360)
             canvas.itemconfig(attackArc, extent=arcAngle)
-            canvas.itemconfig(attackText, text=f'{attack:.2f}')
+            canvas.itemconfig(attackText, text=f'{attack:.2f}s')
 
         elif self.activeDial == "decay":
             decay = minDecay + (maxDecay - minDecay) * (abs(arcAngle) / 360)
             canvas.itemconfig(decayArc, extent=arcAngle)
-            canvas.itemconfig(decayText, text=f'{decay:.2f}') 
+            canvas.itemconfig(decayText, text=f'{decay:.2f}s') 
 
         elif self.activeDial == "sustain":
             sustain = minSustain + (maxSustain - minSustain) * (abs(arcAngle) / 360)
@@ -219,7 +246,7 @@ class Dials:
         elif self.activeDial == "release":
             release = minRelease + (maxRelease - minRelease) * (abs(arcAngle) / 360)
             canvas.itemconfig(releaseArc, extent=arcAngle)
-            canvas.itemconfig(releaseText, text=f'{release:.2f}')            
+            canvas.itemconfig(releaseText, text=f'{release:.2f}s')            
 
     def dialClicked(self, event, stage):
         self.activeDial = stage
@@ -248,22 +275,27 @@ canvas.pack()
 attackBg = canvas.create_oval(leftx, 49, rightx, 101, fill="white", outline="black", width=1.5, tags="attack_tag")
 attackArc = canvas.create_arc(leftx, 50, rightx, 100, fill="lightblue", start= 270, extent=-135)
 attackFg = canvas.create_oval(leftx+inPad, 65, (rightx-inPad), 85, fill="black", tags="attack_tag")
-attackText = canvas.create_text(leftx+textPad, 108, text=f'{attack:.2f}', fill="white")
+attackText = canvas.create_text(leftx+textPad, 108, text=f'{attack:.2f}s', fill="white")
+attackDesc = canvas.create_text(leftx+textPad, 120, text=f'silence to peak', fill="white", font=("Arial", 10))
+
 
 decayBg = canvas.create_oval(leftx + offset, 49, rightx + offset, 101, fill="white", outline="black", width=1.5, tags="decay_tag")
 decayArc = canvas.create_arc(leftx + offset, 50, rightx + offset, 100, fill="lightblue", start= 270, extent=-135)
 decayFg = canvas.create_oval((leftx+inPad) + offset, 65, (rightx-inPad) + offset, 85, fill="black", tags="decay_tag")
-decayText = canvas.create_text((leftx+textPad) + offset, 108, text=f'{decay:.2f}', fill="white")
+decayText = canvas.create_text((leftx+textPad) + offset, 108, text=f'{decay:.2f}s', fill="white")
+decayDesc = canvas.create_text((leftx+textPad) + offset, 120, text=f'peak to sustain', fill="white", font=("Arial", 10))
 
 sustainBg = canvas.create_oval(leftx + offset*2, 49, rightx + offset*2, 101, fill="white", outline="black", width=1.5, tags="sustain_tag")
 sustainArc = canvas.create_arc(leftx + offset*2, 50, rightx + offset*2, 100, fill="lightblue", start= 270, extent=-135)
 sustainFg = canvas.create_oval((leftx+inPad) + offset*2, 65, (rightx-inPad) + offset*2, 85, fill="black", tags="sustain_tag")
-sustainText = canvas.create_text((leftx+textPad) + offset*2, 108, text=f'{release:.2f}', fill="white")
+sustainText = canvas.create_text((leftx+textPad) + offset*2, 108, text=f'{release:.2f}dB', fill="white")
+sustainDesc = canvas.create_text((leftx+textPad) + offset*2, 120, text=f'sustain volume', fill="white", font=("Arial", 10))
 
 releaseBg = canvas.create_oval(leftx + offset*3, 49, rightx+offset*3, 101, fill="white", outline="black", width=1.5, tags="release_tag")
 releaseArc = canvas.create_arc(leftx + offset*3, 50, rightx+offset*3, 100, fill="lightblue", start= 270, extent=-135)
 releaseFg = canvas.create_oval((leftx+inPad) + offset*3, 65, (rightx-inPad) + offset*3, 85, fill="black", tags="release_tag")
-releaseText = canvas.create_text((leftx+textPad) + offset*3, 108, text=f'{release:.2f}', fill="white")
+releaseText = canvas.create_text((leftx+textPad) + offset*3, 108, text=f'{release:.2f}s', fill="white")
+releaseDesc = canvas.create_text((leftx+textPad) + offset*3, 120, text=f'time to silence', fill="white", font=("Arial", 10))
 
 stream = sd.OutputStream(samplerate=sampleRate, channels=2, callback=audioCallback, blocksize=blocksize)
 stream.start()
