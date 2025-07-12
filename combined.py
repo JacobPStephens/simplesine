@@ -41,7 +41,7 @@ wave4 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (493 / sampleRate)
 
 
 lim = Limiter(0.7, 20)
-attack = 1
+attack = 0.5
 decay = 0.25
 minDecay = 1e-9
 maxDecay = 5
@@ -51,7 +51,7 @@ minSustain = 0
 maxSustain = maxVolume
 ratioCurve = 1.5
 
-release = 2
+release = 1
 minRelease = 1e-9
 maxRelease = 8
 minAttack = 1e-9
@@ -215,6 +215,12 @@ blackIDs = [1, 3, 6, 8 ,10, 13, 15, 18, 20, 22]
 whiteIDs = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24]
 
 LOWEST_NOTE = 48
+
+def transposeKeys(amount: int):
+    global LOWEST_NOTE
+    LOWEST_NOTE += amount
+    print(f'New {LOWEST_NOTE=}')
+
 def highlightNote(noteID, msgType):
     
     localID = noteID - LOWEST_NOTE # where note 48 is the lowest element in current 8ve
@@ -270,11 +276,23 @@ def onMidiAction(msg):
 #         activeNotes.append(Note(freq))
 
 def onKeyPressed(event):
+    if event.char == ")":        
+        transposeKeys(1)
+    elif event.char == "(":
+        transposeKeys(-1)
+    elif event.char == "+":
+        transposeKeys(12)
+    elif event.char == "-":
+        transposeKeys(-12)
+
     if event.char.lower() not in utils.KEYBOARD_KEY_TO_LOCAL_NOTE:
         return
     
     localNote = utils.KEYBOARD_KEY_TO_LOCAL_NOTE[event.char.lower()]
     globalNote = localNote + LOWEST_NOTE
+    if globalNote > 88:
+        return
+    
     freq = utils.NOTE_TO_FREQ[globalNote]
     with lock:
         activeNotes.append(Note(freq))
@@ -321,25 +339,25 @@ class Dials:
 
     def adjustArcAndValue(self, difference):
         global attack, decay, sustain, release
-        arcAngle = ((difference + 50) / (100 + 1e-9)) * -360
+        arcAngle = ((difference + 50) / (100 + 1e-9)) *-360
 
         if self.activeDial == "attack":
-            attack = minAttack + (maxAttack - minAttack) * (abs(arcAngle) / 360)
+            attack = minAttack + (maxAttack - minAttack) * (abs(arcAngle) / 360)**2 # smooths out dial 
             canvas.itemconfig(attackArc, extent=arcAngle)
             canvas.itemconfig(attackText, text=f'{attack:.2f}s')
 
         elif self.activeDial == "decay":
-            decay = minDecay + (maxDecay - minDecay) * (abs(arcAngle) / 360)
+            decay = minDecay + (maxDecay - minDecay) * (abs(arcAngle) / 360)**2
             canvas.itemconfig(decayArc, extent=arcAngle)
             canvas.itemconfig(decayText, text=f'{decay:.2f}s') 
 
         elif self.activeDial == "sustain":
-            sustain = minSustain + (maxSustain - minSustain) * (abs(arcAngle) / 360)
+            sustain = minSustain + (maxSustain - minSustain) * (abs(arcAngle) / 360)**2
             canvas.itemconfig(sustainArc, extent=arcAngle)
             canvas.itemconfig(sustainText, text=f'{utils.amplitudeToDecibels(sustain):.2f}dB')  
 
         elif self.activeDial == "release":
-            release = minRelease + (maxRelease - minRelease) * (abs(arcAngle) / 360)
+            release = minRelease + (maxRelease - minRelease) * (abs(arcAngle) / 360)**2
             canvas.itemconfig(releaseArc, extent=arcAngle)
             canvas.itemconfig(releaseText, text=f'{release:.2f}s')            
 
@@ -474,7 +492,7 @@ releaseCenter = 540
 #attackBg = canvas.create_oval(leftx, 49, rightx, 101, fill="white", outline="black", width=1.5, tags="attack_tag")
 attackBg = canvas.create_oval(attackCenter-(dialWidth/2), yCenter-(dialHeight/2), attackCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=secondaryBlue, outline="black", width=1.5, tags="attack_tag")
 # ^^ 20 pad from top of keys .. 20 pad from left of center dark gray box
-attackArc = canvas.create_arc(attackCenter-(dialWidth/2), yCenter-(dialHeight/2), attackCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=359, tags="attack_tag")
+attackArc = canvas.create_arc(attackCenter-(dialWidth/2), yCenter-(dialHeight/2), attackCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start=270, extent=(attack/maxAttack)**2*-359, tags="attack_tag")
 attackEntry = tk.Entry(root)
 
 
@@ -484,7 +502,7 @@ attackText = canvas.create_text(attackCenter, yCenter+(dialWidth/2)+textPad, tex
 
 #decayBg = canvas.create_oval(leftx + offset, 49, rightx + offset, 101, fill="white", outline="black", width=1.5, tags="decay_tag")
 decayBg = canvas.create_oval(decayCenter-(dialWidth/2), yCenter-(dialHeight/2), decayCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=secondaryBlue, outline="black", width=1.5, tags="decay_tag")
-decayArc = canvas.create_arc(decayCenter-(dialWidth/2), yCenter-(dialHeight/2), decayCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=-135, tags="decay_tag")
+decayArc = canvas.create_arc(decayCenter-(dialWidth/2), yCenter-(dialHeight/2), decayCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=(decay/maxDecay)*-359, tags="decay_tag")
 
 #decayFg = canvas.create_oval((leftx+inPad) + offset, 65, (rightx-inPad) + offset, 85, fill="black", tags="decay_tag")
 decayText = canvas.create_text(decayCenter, yCenter+(dialHeight/2)+textPad, text=f'{decay:.2f}s', fill="white")
@@ -492,7 +510,7 @@ decayText = canvas.create_text(decayCenter, yCenter+(dialHeight/2)+textPad, text
 
 #sustainBg = canvas.create_oval(leftx + offset*2, 49, rightx + offset*2, 101, fill="white", outline="black", width=1.5, tags="sustain_tag")
 sustainBg = canvas.create_oval(sustainCenter-(dialWidth/2), yCenter-(dialHeight/2), sustainCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=secondaryBlue, outline="black", width=1.5, tags="sustain_tag")
-sustainArc = canvas.create_arc(sustainCenter-(dialWidth/2), yCenter-(dialHeight/2), sustainCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=-135, tags="sustain_tag")
+sustainArc = canvas.create_arc(sustainCenter-(dialWidth/2), yCenter-(dialHeight/2), sustainCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=(sustain/maxSustain)*-359, tags="sustain_tag")
 
 #sustainFg = canvas.create_oval((leftx+inPad) + offset*2, 65, (rightx-inPad) + offset*2, 85, fill="black", tags="sustain_tag")
 sustainText = canvas.create_text(sustainCenter, yCenter+(dialWidth/2)+textPad, text=f'{release:.2f}dB', fill="white")
@@ -501,7 +519,7 @@ sustainText = canvas.create_text(sustainCenter, yCenter+(dialWidth/2)+textPad, t
 
 #releaseBg = canvas.create_oval(570, 290-dialHeight, 570-dialWidth, 290, fill=secondaryBlue, outline="black", width=1.5, tags="attack_tag")\attackBg = canvas.create_oval(attackCenter-(dialWidth/2), attackCenter-(dialHeight/2), attackCenter+(dialWidth/2), attackCenter+(dialHeight/2), fill=secondaryBlue, outline="black", width=1.5, tags="attack_tag")
 releaseBg = canvas.create_oval(releaseCenter-(dialWidth/2), yCenter-(dialHeight/2), releaseCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=secondaryBlue, outline="black", width=1.5, tags="release_tag")
-releaseArc = canvas.create_arc(releaseCenter-(dialWidth/2), yCenter-(dialHeight/2), releaseCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=-135, tags="release_tag")
+releaseArc = canvas.create_arc(releaseCenter-(dialWidth/2), yCenter-(dialHeight/2), releaseCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=(release/maxRelease)*-359, tags="release_tag")
 
 #
 #releaseBg = canvas.create_oval(leftx + offset*3, 49, rightx+offset*3, 101, fill="white", outline="black", width=1.5, tags="release_tag")
