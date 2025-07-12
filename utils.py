@@ -16,6 +16,18 @@ NOTE_TO_FREQ = {
     120: 16744.04, 121: 17739.69, 122: 18794.54, 123: 19912.13, 124: 21096.16, 125: 22350.6, 126: 23679.64, 127: 25087.71
 }
 
+keyboardKeys = ['q', '2', 'w', '3', 'e', 0, 'r', '5', 't', '6', 'y', '7', 
+                'u', 0, 'i', '9', 'o', '0', 'p', 0, 'z', 's', 'x', 'd', 'c', 'f', 'v', 0, 'b']
+
+KEYBOARD_KEY_TO_LOCAL_NOTE = {}
+localNote = 0
+for i in range(len(keyboardKeys)):
+    keyboardKey = keyboardKeys[i]
+
+    KEYBOARD_KEY_TO_LOCAL_NOTE[keyboardKey] = localNote
+    if keyboardKey:
+        localNote += 1
+
 def decibelsToAmplitude(decibels):
     return 2**(decibels / 10)
 
