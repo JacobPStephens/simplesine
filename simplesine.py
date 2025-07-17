@@ -8,25 +8,25 @@ import Dial
 import MouseInfo
 #from GUI import GUI 
 # 
-# # THIS FILE CANNOT IMPORT GUI
+# # THIS FILE CANNOT IMPORT GUI or MAIN
 
 class SimpleSine:
 
 #import time, threading, os, utils, params
 #import Dial, MouseInfo, Note, params
 
-def main():
-    global lock, stream, activeNotes
-    os.system('xset r off')
+# def main():
+#     global lock, stream, activeNotes
+#     os.system('xset r off')
     
-    gui = GUI()
+#     gui = GUI()
 
-    # builds widgets to GUI and stores them in widgets dict
-    widgets = gui.buildWidgets() # widgets key = name of widget: val = widget obj
+#     # builds widgets to GUI and stores them in widgets dict
+#     widgets = gui.buildWidgets() # widgets key = name of widget: val = widget obj
 
 
-    for tag in allTags:
-        canvas.tag_bind(tag, "<Button-1>", lambda event: HandleInput.mouseClicked(event, tag))
+#     for tag in allTags:
+#         canvas.tag_bind(tag, "<Button-1>", lambda event: HandleInput.mouseClicked(event, tag))
 
 
 # class HandleInput():
@@ -59,8 +59,7 @@ def main():
 
 
 
-#     midiThread = threading.Thread(target=midiListener)
-#     midiThread.start()
+
 
 #     dialValues = {
 #         'attack': {
