@@ -60,6 +60,9 @@ def main():
     for name in ['attack', 'decay', 'sustain', 'release']:
         widgets[name] = Dial(name)
 
+    widgets['volume'] = Slider('volume')
+    widgets['pitch'] = Slider('pitch')
+
     # bind keyboard input to callback function
     inputObj = UserInput(widgets)
     root.bind("<KeyPress>", inputObj.onKeyPressed)
@@ -67,6 +70,7 @@ def main():
     root.bind("<Motion>", inputObj.mouseMotion)
     root.bind("<ButtonRelease-1>", inputObj.mouseReleased)
 
+    root.after(500, draw)
     # listen for midi input
     midiThread = threading.Thread(target=inputObj.midiListener)
     midiThread.start()
@@ -74,16 +78,15 @@ def main():
     stream = sd.OutputStream(samplerate=params.samplerate, channels=2, callback=audioCallback, blocksize=params.blocksize)
     stream.start()
 
-
-
     root.mainloop()
     os.system('xset r on')
 
 def audioCallback(outdata, frames, time_info, status):
+    global drawingSignal
     if status: 
         print(f'{status=}')
     
-    if (stream.cpu_load > 0.2):
+    if (stream.cpu_load > 0.25):
         print(f'cpu {stream.cpu_load}')
     signal = np.zeros(frames, dtype=np.float32)
     with lock:
@@ -111,12 +114,36 @@ def audioCallback(outdata, frames, time_info, status):
     signal *= params.smoothedGain * 0.5
     peak = np.max(np.abs(signal))
 
+    drawingSignal = signal.copy()
     
     if peak > 1:
         print(f"clip {peak}")
 
 
     outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
+def draw():
+
+    maxSineHeight = 0
+    minSineHeight = 110
+    pad = 0
+    leftEdge = 210 + pad
+    rightEdge = 590 - pad
+    numPoints = rightEdge - leftEdge
+
+    #canvas.create_line(leftEdge, minSineHeight, rightEdge, minSineHeight, fill=params.primaryToneDark, width=2)
+
+    #canvas.create_line(100, 200, 200, 200, fill="orange")
+    #canvas.create_line(210, 100, 590, 100, fill="yellow")
+    #canvas.create_line(100, 200, 200, 200, fill="yellow")
+
+    points = []
+    for x, y in enumerate(drawingSignal[:numPoints]):
+        points.append(x+leftEdge)
+        points.append(minSineHeight + (maxSineHeight - minSineHeight) * y)
+    canvas.delete("wave")
+    canvas.create_line(points, fill=params.primaryToneLight, tag="wave", width=5)
+
+    root.after(20, draw)
 
 def buildGUI():
     global root, canvas, keysGUI
@@ -231,13 +258,36 @@ class Dial:
 
 
 class Slider:
-    def __init__(self):
-        pass
+    def __init__(self, name):
+        self.name = name
+        
+        self.left = params.sliders[self.name]['left']
+        self.right = params.sliders[self.name]['right']
+        self.yPos = params.sliders[self.name]['yPos']
+        self.knobHeight = params.sliders[self.name]['knobHeight']
+
+        height = params.sliders[self.name]['height']
+        knobWidth = params.sliders[self.name]['knobWidth']
+        self.widthPad = 20
+        textPad = 20
+        hitboxMultiplier = 4
+        tagName = f"{self.name}_tag"
+        self.bg = canvas.create_rectangle(self.left-self.widthPad, self.yPos-height, self.right+self.widthPad, self.yPos +height, fill=params.primaryToneDark,outline="black")
+        self.knob = canvas.create_rectangle(self.left+(self.right-self.left)/2-knobWidth, self.yPos-self.knobHeight , self.left+(self.right-self.left)/2+knobWidth, self.yPos+self.knobHeight , fill=params.primaryToneLight,outline="black")
+        self.text = canvas.create_text(self.left+(self.right-self.left)/2, self.yPos +textPad, text=f'{self.name}', fill="white")
+        self.hitbox = canvas.create_rectangle(self.left-self.widthPad, self.yPos -height*hitboxMultiplier, self.right+self.widthPad, self.yPos +height*hitboxMultiplier, fill="", outline="", tag=tagName)
+        canvas.tag_bind(tagName, "<Button-1>", lambda event: inputObj.mouseClicked(event, self.name))
+
 
     def update(self, clickPoint, mousePoint):
+
+        # update knob position
+        mouse_x = mousePoint[0]
+        slider_x = min(self.right+self.widthPad/2, max(self.left-self.widthPad, mouse_x))
+        canvas.moveto(self.knob, slider_x, params.sliders[self.name]['yPos']-params.sliders[self.name]['knobHeight'])
+
+        # based on knob position, change global variables
         pass
-        # called when mouse moves and you are active
-        # update variables like maxVolume
 
 
 class UserInput():
@@ -268,7 +318,7 @@ class UserInput():
         }
         if event.char in charToTranposeAmount:
             amnt = charToTranposeAmount[event.char]
-            utils.transpose(amnt)
+            transpose(amnt)
         if event.char.lower() not in utils.KEYBOARD_KEY_TO_LOCAL_NOTE:
             return
         localNote = utils.KEYBOARD_KEY_TO_LOCAL_NOTE[event.char.lower()]
@@ -416,5 +466,9 @@ def highlightNote(noteID, msgType):
             elif localID in utils.blackIDs:
                 canvas.itemconfig(keysGUI[localID], fill=params.primaryToneLight)
 
+def transpose(amount: int):
+    global lowestNote
+    lowestNote += amount
+    print(f'New {lowestNote=}')
 
 main()

@@ -20,7 +20,7 @@ minRelease = 1e-9
 maxRelease = 5
 
 # Sound stream settings
-blocksize = 0 # default = 0
+blocksize = 512 # default = 0
 samplerate = 44100
 
 # Compressor
@@ -44,6 +44,30 @@ dialCenters_x = {
     "decay":353.33,
     "sustain":446.66,
     "release":540
+}
+
+sliders = {
+    "volume": {
+        "left": dialCenters_x["attack"],
+        "right": dialCenters_x["decay"],
+        "center": dialCenters_x["decay"] - dialCenters_x["attack"],
+        "yPos": 190,
+        "height": 3,
+        "knobWidth": 5,
+        "knobHeight": 10
+        
+    },
+    "pitch": {
+        "left": dialCenters_x["sustain"],
+        "right": dialCenters_x["release"],
+        "center": dialCenters_x["release"] - dialCenters_x["sustain"],
+        "yPos": 190,
+        "height": 3,
+        "knobWidth": 5,
+        "knobHeight": 10
+        
+    }
+
 }
 
 noteCeiling = 88
