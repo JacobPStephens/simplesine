@@ -18,6 +18,8 @@ NOTE_TO_FREQ = {
 
 keyboardKeys = ['q', '2', 'w', '3', 'e', 0, 'r', '5', 't', '6', 'y', '7', 
                 'u', 0, 'i', '9', 'o', '0', 'p', 0, 'z', 's', 'x', 'd', 'c', 'f', 'v', 0, 'b']
+blackIDs = [1, 3, 6, 8 ,10, 13, 15, 18, 20, 22]
+whiteIDs = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24]
 
 KEYBOARD_KEY_TO_LOCAL_NOTE = {}
 localNote = 0
@@ -28,6 +30,8 @@ for i in range(len(keyboardKeys)):
     if keyboardKey:
         localNote += 1
 
+
+
 def decibelsToAmplitude(decibels):
     return 2**(decibels / 10)
 
@@ -35,3 +39,8 @@ def amplitudeToDecibels(amplitude):
     if amplitude == 0:
         return -999
     return 20 * math.log(amplitude, 10)
+
+def transpose(amount: int):
+    #global LOWEST_NOTE
+    LOWEST_NOTE += amount
+    print(f'New {LOWEST_NOTE=}')
