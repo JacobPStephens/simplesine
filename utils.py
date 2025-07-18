@@ -40,7 +40,3 @@ def amplitudeToDecibels(amplitude):
         return -999
     return 20 * math.log(amplitude, 10)
 
-def transpose(amount: int):
-    #global LOWEST_NOTE
-    LOWEST_NOTE += amount
-    print(f'New {LOWEST_NOTE=}')

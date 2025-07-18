@@ -9,7 +9,9 @@ attack = params.defaultAttack
 decay = params.defaultDecay
 sustain = params.defaultSustain
 release = params.defaultRelease
-maxVolume = params.defaultMaxVolume
+peakVolume = params.peakVolume
+volume = params.volume
+
 lowestNote = params.defaultLowestNote
 dialValues = {
     'attack': {
@@ -37,6 +39,20 @@ dialValues = {
         'center': 540
     }
 }
+sliderValues = {
+    "volume": {
+        "curr": params.volume,
+        "min": params.minVolume,
+        "max": params.maxVolume
+    },
+    "frequency": {
+        "curr": params.freq,
+        "min": params.minFreq,
+        "max": params.maxFreq
+    }
+}
+
+        
 
 
 #pitch = b
@@ -61,7 +77,7 @@ def main():
         widgets[name] = Dial(name)
 
     widgets['volume'] = Slider('volume')
-    widgets['pitch'] = Slider('pitch')
+    widgets['frequency'] = Slider('frequency')
 
     # bind keyboard input to callback function
     inputObj = UserInput(widgets)
@@ -111,7 +127,7 @@ def audioCallback(outdata, frames, time_info, status):
         params.smoothedGain = params.smoothedGain * (1 - params.alphaRelease) + targetGain * params.alphaRelease 
 
     #print(f'{targetGain=}')
-    signal *= params.smoothedGain * 0.5
+    signal *= params.smoothedGain * sliderValues['volume']['curr'] * params.masterDamp
     peak = np.max(np.abs(signal))
 
     drawingSignal = signal.copy()
@@ -124,13 +140,14 @@ def audioCallback(outdata, frames, time_info, status):
 def draw():
 
     maxSineHeight = 0
-    minSineHeight = 110
+    minSineHeight = 305*3/8+10
     pad = 0
     leftEdge = 210 + pad
     rightEdge = 590 - pad
     numPoints = rightEdge - leftEdge
 
-    #canvas.create_line(leftEdge, minSineHeight, rightEdge, minSineHeight, fill=params.primaryToneDark, width=2)
+    # 3/8ths of way down panel + border
+    #canvas.create_line(leftEdge, 305*3/8+10, rightEdge, 305*3/8+10, fill=params.primaryToneDark, width=2)
 
     #canvas.create_line(100, 200, 200, 200, fill="orange")
     #canvas.create_line(210, 100, 590, 100, fill="yellow")
@@ -138,12 +155,12 @@ def draw():
 
     points = []
     for x, y in enumerate(drawingSignal[:numPoints]):
-        points.append(x+leftEdge)
-        points.append(minSineHeight + (maxSineHeight - minSineHeight) * y)
+        points.append(x+leftEdge) 
+        points.append(minSineHeight + (maxSineHeight - minSineHeight) * y) # this equation doesn't work how I think it does
     canvas.delete("wave")
-    canvas.create_line(points, fill=params.primaryToneLight, tag="wave", width=5)
+    canvas.create_line(points, fill=params.primaryToneLight, tag="wave", width=params.sineWidth)
 
-    root.after(20, draw)
+    root.after(10, draw)
 
 def buildGUI():
     global root, canvas, keysGUI
@@ -165,7 +182,7 @@ def buildGUI():
     bgMid = canvas.create_rectangle(210, 10, 590, 395, fill=params.secondaryToneDark, outline=None)
     effectsTxt = canvas.create_text(690, 30, text="effects", justify='center', font=("Terminal", 16, 'bold'), fill=params.secondaryToneDark)
     modulationsTxt = canvas.create_text(110, 30, text="modulations", justify='center', font=("Terminal", 16, 'bold'), fill=params.secondaryToneDark)
-    centerTitle = canvas.create_text(400, 40, text="simplesine", justify='center', font=("Terminal", 30, 'bold'), fill=params.primaryToneLight)
+    centerTitle = canvas.create_text(400, 305*1/8+10, text="simplesine", justify='center', font=("Terminal", 30, 'bold'), fill=params.primaryToneLight)
     
     panelHeight = 305 # total height - 2 * border - keysHeight
     leftPanelLines = []
@@ -233,7 +250,7 @@ class Dial:
         if self.name != "sustain":
             self.text = canvas.create_text(dialCenters_x[self.name], dialCenter_y+(dialHeight/2)+textPadding, text=f'{dialValues[self.name]['curr']:.2f}s', fill="white")
         else:
-            self.text = canvas.create_text(dialCenters_x[self.name], dialCenter_y+(dialHeight/2)+textPadding, text=f'{utils.amplitudeToDecibels(dialValues[self.name]['curr']):.2f}dB', fill="white")
+            self.text = canvas.create_text(dialCenters_x[self.name], dialCenter_y+(dialHeight/2)+textPadding, text=f'{dialValues[self.name]['curr']*100:.2f}%', fill="white")
         
     def update(self, clickPoint, mousePoint):
         # calculate dial angle using user's mouse location
@@ -250,7 +267,7 @@ class Dial:
         if self.name != "sustain":
             canvas.itemconfig(self.text, text=f'{dialValues[self.name]['curr']:.2f}s')
         else:
-            canvas.itemconfig(self.text, text=f'{utils.amplitudeToDecibels(dialValues[self.name]['curr']):.2f}dB')
+            canvas.itemconfig(self.text, text=f'{dialValues[self.name]['curr']*100:.2f}%')
     
     def getStartExtent(self, name):
         env = dialValues[name]
@@ -261,31 +278,60 @@ class Slider:
     def __init__(self, name):
         self.name = name
         
-        self.left = params.sliders[self.name]['left']
-        self.right = params.sliders[self.name]['right']
+
+        self.widthPad = 20
+        self.left = params.sliders[self.name]['left'] - self.widthPad
+        self.right = params.sliders[self.name]['right'] + self.widthPad
         self.yPos = params.sliders[self.name]['yPos']
         self.knobHeight = params.sliders[self.name]['knobHeight']
 
         height = params.sliders[self.name]['height']
         knobWidth = params.sliders[self.name]['knobWidth']
-        self.widthPad = 20
+        
         textPad = 20
         hitboxMultiplier = 4
         tagName = f"{self.name}_tag"
-        self.bg = canvas.create_rectangle(self.left-self.widthPad, self.yPos-height, self.right+self.widthPad, self.yPos +height, fill=params.primaryToneDark,outline="black")
+        self.bg = canvas.create_rectangle(self.left, self.yPos-height, self.right, self.yPos +height, fill=params.primaryToneDark,outline="black")
         self.knob = canvas.create_rectangle(self.left+(self.right-self.left)/2-knobWidth, self.yPos-self.knobHeight , self.left+(self.right-self.left)/2+knobWidth, self.yPos+self.knobHeight , fill=params.primaryToneLight,outline="black")
-        self.text = canvas.create_text(self.left+(self.right-self.left)/2, self.yPos +textPad, text=f'{self.name}', fill="white")
-        self.hitbox = canvas.create_rectangle(self.left-self.widthPad, self.yPos -height*hitboxMultiplier, self.right+self.widthPad, self.yPos +height*hitboxMultiplier, fill="", outline="", tag=tagName)
+        self.text = canvas.create_text(self.left+(self.right-self.left)/2, self.yPos +textPad, text=f"{self.name}: {sliderValues[self.name]['curr']:.2f}", fill="white")
+        self.hitbox = canvas.create_rectangle(self.left, self.yPos -height*hitboxMultiplier, self.right, self.yPos +height*hitboxMultiplier, fill="", outline="", tag=tagName)
         canvas.tag_bind(tagName, "<Button-1>", lambda event: inputObj.mouseClicked(event, self.name))
 
 
     def update(self, clickPoint, mousePoint):
+        global volume, pitch
 
         # update knob position
         mouse_x = mousePoint[0]
-        slider_x = min(self.right+self.widthPad/2, max(self.left-self.widthPad, mouse_x))
+        slider_x = min(self.right, max(self.left, mouse_x))
         canvas.moveto(self.knob, slider_x, params.sliders[self.name]['yPos']-params.sliders[self.name]['knobHeight'])
 
+        # so figure out 
+        minParameterValue = sliderValues[self.name]['min']
+        maxParameterValue = sliderValues[self.name]['max']
+
+        # how far along the slider_x is between min and max
+        sliderPercent = (slider_x-self.left)/(self.right-self.left)
+
+        #masterVolume = minParameterValue + (maxParameterValue - minParameterValue) * sliderPercent
+        sliderValues[self.name]['curr'] = minParameterValue + (maxParameterValue - minParameterValue) * sliderPercent
+        #volume = params.minVolume + (params.maxVolume - params.minVolume) * sliderPercent
+        #print(f"{self.name}: {sliderValues[self.name]['curr']}")
+
+
+        canvas.itemconfig(self.text, text=f"{self.name}: {sliderValues[self.name]['curr']:.2f}")
+
+
+        # 500 - 200 / (300) = 1
+        # 200 - 200 / 300 =  0
+
+
+
+        # slider_x = 200, volume = minVolume
+
+        # slider_x = 500, volume = maxVolume
+        
+        self.left  + (slider_x/self.right)
         # based on knob position, change global variables
         pass
 
@@ -297,9 +343,12 @@ class UserInput():
         self.widgets = widgets
         self.activeWidget = None
 
-    def mouseClicked(self, event, stage):
-        self.activeWidget = self.widgets[stage]
+    def mouseClicked(self, event, elementName):
+        self.activeWidget = self.widgets[elementName]
         self.clickPoint = self.mousePoint
+
+        if self.activeWidget.name in sliderValues:
+            self.widgets[self.activeWidget.name].update(self.clickPoint, self.mousePoint)
 
     def mouseReleased(self, event):
         self.activeWidget = None
@@ -385,17 +434,17 @@ class Note:
             if lifetime < attack:
                 #print("attack", lifetime)
                 ratio = lifetime / attack
-                return self.getAmp(0, params.defaultMaxVolume, ratio)
+                return self.getAmp(0, peakVolume, ratio)
             # decay phase
             elif lifetime < (attack + decay):
                 #print("decay", lifetime)
                 ratio = (lifetime - attack) / decay
-                return self.getAmp(params.defaultMaxVolume, sustain, ratio)
+                return self.getAmp(peakVolume, peakVolume * sustain, ratio)
             # sustain phase
             else:
                 #print("sustain", lifetime)
-                self.amp = sustain
-                return sustain
+                self.amp = peakVolume * sustain
+                return peakVolume * sustain
         # release phase
         else:
             #print(f'in release: {self.amp=}')
@@ -424,7 +473,7 @@ class Note:
         amplitudes = np.linspace(self.prevAmplitude, amplitudes[-1], frames)
         self.prevAmplitude = amplitudes[-1]
 
-        phaseIncrement = 2 * np.pi * self.freq / params.samplerate # radians per sample travelled
+        phaseIncrement = 2 * np.pi * (self.freq + sliderValues['frequency']['curr'])/ params.samplerate # radians per sample travelled
         phases = np.arange(frames) * phaseIncrement + self.phase
         signal = amplitudes * np.sin(phases)
 

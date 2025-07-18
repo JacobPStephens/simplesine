@@ -1,9 +1,21 @@
 import utils
 
-defaultMaxVolume = utils.decibelsToAmplitude(-2)
+
+# volume
+volume = 1.0
+peakVolume = utils.decibelsToAmplitude(0)
+maxVolume = utils.decibelsToAmplitude(0)
+minVolume = 1e-9
+masterDamp = 0.5
+
+# pitch
+freq = 0
+minFreq = -200
+maxFreq = 200
+
 
 # Attack
-defaultAttack = 1
+defaultAttack = 0.25
 minAttack = 1e-9
 maxAttack = 5
 # Decay
@@ -11,9 +23,9 @@ defaultDecay = 0.5
 minDecay = 1e-9
 maxDecay = 5
 # Sustain
-defaultSustain = defaultMaxVolume * 3/4
+defaultSustain = 3/4
 minSustain = 0
-maxSustain = defaultMaxVolume
+maxSustain = 1
 # Release
 defaultRelease = 1
 minRelease = 1e-9
@@ -57,7 +69,7 @@ sliders = {
         "knobHeight": 10
         
     },
-    "pitch": {
+    "frequency": {
         "left": dialCenters_x["sustain"],
         "right": dialCenters_x["release"],
         "center": dialCenters_x["release"] - dialCenters_x["sustain"],
@@ -72,3 +84,6 @@ sliders = {
 
 noteCeiling = 88
 defaultLowestNote = 48
+
+# sine visuals
+sineWidth = 4
