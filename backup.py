@@ -3,7 +3,7 @@ import numpy as np
 import sounddevice as sd
 import time, threading, os, utils, mido
 import matplotlib.pyplot as plt
-from limiter import Limiter
+#from limiter import Limiter
 
 
 sampleRate = 44100
@@ -38,6 +38,10 @@ wave1 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (261.63 / sampleRa
 wave2 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (329 / sampleRate)).reshape(-1, 1)
 wave3 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (392 / sampleRate)).reshape(-1, 1)
 wave4 = np.sin(2 * np.pi * np.arange(sampleRate * duration) * (493 / sampleRate)).reshape(-1, 1)
+
+sd.play(wave1, wave2, wave3, wave4)
+
+exit()
 
 
 lim = Limiter(0.7, 20)
@@ -150,6 +154,8 @@ class Note:
 
 
         self.phase = (self.phase + frames * phaseIncrement) % (2 * np.pi)
+        print(self.phase)
+        
 
         return signal
 
@@ -540,7 +546,7 @@ sustainArc = canvas.create_arc(sustainCenter-(dialWidth/2), yCenter-(dialHeight/
 sustainText = canvas.create_text(sustainCenter, yCenter+(dialWidth/2)+textPad, text=f'{release:.2f}dB', fill="white")
 #sustainDesc = canvas.create_text((leftx+textPad) + offset*2, 120, text=f'sustain volume', fill="white", font=("Arial", 10))
 
-
+ 
 #releaseBg = canvas.create_oval(570, 290-dialHeight, 570-dialWidth, 290, fill=secondaryBlue, outline="black", width=1.5, tags="attack_tag")\attackBg = canvas.create_oval(attackCenter-(dialWidth/2), attackCenter-(dialHeight/2), attackCenter+(dialWidth/2), attackCenter+(dialHeight/2), fill=secondaryBlue, outline="black", width=1.5, tags="attack_tag")
 releaseBg = canvas.create_oval(releaseCenter-(dialWidth/2), yCenter-(dialHeight/2), releaseCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=secondaryBlue, outline="black", width=1.5, tags="release_tag")
 releaseArc = canvas.create_arc(releaseCenter-(dialWidth/2), yCenter-(dialHeight/2), releaseCenter+(dialWidth/2), yCenter+(dialHeight/2), fill=primaryBlue, start= 270, extent=-359, tags="release_tag")

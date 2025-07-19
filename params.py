@@ -6,7 +6,7 @@ volume = 1.0
 peakVolume = utils.decibelsToAmplitude(0)
 maxVolume = utils.decibelsToAmplitude(0)
 minVolume = 1e-9
-masterDamp = 0.5
+masterDamp = 0.3
 
 # pitch
 freq = 0
@@ -16,11 +16,11 @@ maxFreq = 200
 
 # Attack
 defaultAttack = 0.25
-minAttack = 1e-9
+minAttack = 0.1
 maxAttack = 5
 # Decay
 defaultDecay = 0.5
-minDecay = 1e-9
+minDecay = 0.1
 maxDecay = 5
 # Sustain
 defaultSustain = 3/4
@@ -28,7 +28,7 @@ minSustain = 0
 maxSustain = 1
 # Release
 defaultRelease = 1
-minRelease = 1e-9
+minRelease = 0.1
 maxRelease = 5
 
 # Sound stream settings
@@ -37,9 +37,9 @@ samplerate = 44100
 
 # Compressor
 smoothedGain = 0
-alphaAttack = 0.6
+alphaAttack = 0.01 # this is causing the crackle
 alphaRelease = 0.01
-ratioCurve = 1.5
+ratioCurve = 1.3
 
 # GUI Colors
 primaryToneLight = "#50ACC0"
@@ -65,7 +65,7 @@ sliders = {
         "center": dialCenters_x["decay"] - dialCenters_x["attack"],
         "yPos": 190,
         "height": 3,
-        "knobWidth": 5,
+        "knobWidth": 10,
         "knobHeight": 10
         
     },
@@ -75,7 +75,7 @@ sliders = {
         "center": dialCenters_x["release"] - dialCenters_x["sustain"],
         "yPos": 190,
         "height": 3,
-        "knobWidth": 5,
+        "knobWidth": 10,
         "knobHeight": 10
         
     }

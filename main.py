@@ -126,20 +126,46 @@ def audioCallback(outdata, frames, time_info, status):
     else:
         params.smoothedGain = params.smoothedGain * (1 - params.alphaRelease) + targetGain * params.alphaRelease 
 
+    params.smoothedGain = 1
     #print(f'{targetGain=}')
     signal *= params.smoothedGain * sliderValues['volume']['curr'] * params.masterDamp
     peak = np.max(np.abs(signal))
 
-    drawingSignal = signal.copy()
+    
     
     if peak > 1:
         print(f"clip {peak}")
 
 
+    def hardClip(signal, threshold=0.2):
+
+        return np.clip(signal, -threshold, threshold)
+
+    def softClip(signal, overdrive):
+        signal *= overdrive
+        return np.tanh(signal)
+    
+    def halfWave(signal):
+        return np.maximum(0, signal)
+
+    # doesn't work with envelopes
+    def square(signal):
+
+        return np.sign(signal) * 0.5 
+    
+    #signal = softClip(signal, 1.5)
+    #distortedSignal = hardClip(signal, 0.2)
+
+    
+
+    distortedSignal = halfWave(signal)
+    signal = (1.0*signal) + (0*distortedSignal)
+    #print(np.sign(signal))
+    drawingSignal = signal.copy()
     outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
 def draw():
 
-    maxSineHeight = 0
+    maxSineHeight = 50
     minSineHeight = 305*3/8+10
     pad = 0
     leftEdge = 210 + pad
@@ -156,7 +182,7 @@ def draw():
     points = []
     for x, y in enumerate(drawingSignal[:numPoints]):
         points.append(x+leftEdge) 
-        points.append(minSineHeight + (maxSineHeight - minSineHeight) * y) # this equation doesn't work how I think it does
+        points.append(minSineHeight + y*maxSineHeight) # this equation doesn't work how I think it does
     canvas.delete("wave")
     canvas.create_line(points, fill=params.primaryToneLight, tag="wave", width=params.sineWidth)
 
@@ -278,6 +304,7 @@ class Slider:
     def __init__(self, name):
         self.name = name
         
+        #knobWidth = params.sliders[self.name]['knobWidth']
 
         self.widthPad = 20
         self.left = params.sliders[self.name]['left'] - self.widthPad
@@ -289,12 +316,20 @@ class Slider:
         knobWidth = params.sliders[self.name]['knobWidth']
         
         textPad = 20
-        hitboxMultiplier = 4
+        hitboxSizeMultiplier = 4
+
+        current = sliderValues[self.name]['curr']
+        minimum = sliderValues[self.name]['min']
+        maximum = sliderValues[self.name]['max']
+
+        normalizedCurrentValue = (current - minimum) / (maximum - minimum)
+
         tagName = f"{self.name}_tag"
         self.bg = canvas.create_rectangle(self.left, self.yPos-height, self.right, self.yPos +height, fill=params.primaryToneDark,outline="black")
-        self.knob = canvas.create_rectangle(self.left+(self.right-self.left)/2-knobWidth, self.yPos-self.knobHeight , self.left+(self.right-self.left)/2+knobWidth, self.yPos+self.knobHeight , fill=params.primaryToneLight,outline="black")
+        #self.knob = canvas.create_rectangle(self.left+(self.right-self.left)/2-knobWidth/2, self.yPos-self.knobHeight , self.left+(self.right-self.left)/2+knobWidth/2, self.yPos+self.knobHeight , fill=params.primaryToneLight,outline="black")
+        self.knob = canvas.create_rectangle(self.left+(self.right-self.left)*normalizedCurrentValue-knobWidth/2, self.yPos-self.knobHeight ,self.left+(self.right-self.left)*normalizedCurrentValue+knobWidth/2, self.yPos+self.knobHeight , fill=params.primaryToneLight,outline="black")
         self.text = canvas.create_text(self.left+(self.right-self.left)/2, self.yPos +textPad, text=f"{self.name}: {sliderValues[self.name]['curr']:.2f}", fill="white")
-        self.hitbox = canvas.create_rectangle(self.left, self.yPos -height*hitboxMultiplier, self.right, self.yPos +height*hitboxMultiplier, fill="", outline="", tag=tagName)
+        self.hitbox = canvas.create_rectangle(self.left, self.yPos -height*hitboxSizeMultiplier, self.right, self.yPos +height*hitboxSizeMultiplier, fill="", outline="", tag=tagName)
         canvas.tag_bind(tagName, "<Button-1>", lambda event: inputObj.mouseClicked(event, self.name))
 
 
@@ -304,7 +339,7 @@ class Slider:
         # update knob position
         mouse_x = mousePoint[0]
         slider_x = min(self.right, max(self.left, mouse_x))
-        canvas.moveto(self.knob, slider_x, params.sliders[self.name]['yPos']-params.sliders[self.name]['knobHeight'])
+        canvas.moveto(self.knob, slider_x-params.sliders[self.name]['knobWidth']/2, params.sliders[self.name]['yPos']-params.sliders[self.name]['knobHeight'])
 
         # so figure out 
         minParameterValue = sliderValues[self.name]['min']
@@ -475,9 +510,15 @@ class Note:
 
         phaseIncrement = 2 * np.pi * (self.freq + sliderValues['frequency']['curr'])/ params.samplerate # radians per sample travelled
         phases = np.arange(frames) * phaseIncrement + self.phase
+
+
         signal = amplitudes * np.sin(phases)
 
         self.phase = (self.phase + frames * phaseIncrement) % (2 * np.pi)
+
+        # if -0.5 <= self.phase <= 0.5:
+            
+        #     print(self.phase)
 
         return signal
 
