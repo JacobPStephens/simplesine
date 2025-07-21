@@ -188,36 +188,191 @@ def draw():
 
     root.after(10, draw)
 
+
+
+effects = [None] * 4
+mods = [None] * 4
+
+popupObjects = []
+
+def removePopup():
+    for obj in popupObjects:
+        canvas.delete(obj)
+
+def onPopupModTextClick(event, piece, slot):
+    print(f"Clicked on {piece} goes to slot {slot}")  
+    removePopup()
+
+
+def onPopupTextEnter(event, piece):
+    canvas.itemconfig(piece, fill=params.primaryToneLight)
+
+def onPopupTextLeave(event, piece):
+    canvas.itemconfig(piece, fill=params.primaryToneDark)
+
+
+def createPopup(x, y, panelType, slot):
+    removePopup()
+    # prevent pop-up from going off-screen
+    print(x)
+
+    if panelType == "effect":
+        x = max(min(x, 750), 630)
+    elif panelType == "mod":
+        x = max(min(x, 170), 50)
+    #x = max(x, 20)
+    popupWidth = 80
+    popupHeight = 90
+    effectTexts = ["distortion", "chorus", "delay", "filter"] 
+    modTexts = ["oscillator", "envelope"]
+    pieceHeight = popupHeight / len(effectTexts)
+    #popup = canvas.create_rectangle(x-(popupWidth/2), y, x+(popupWidth/2), y+(popupHeight/2), fill="green")
+
+    delta_y = 25
+    i = 0
+    padFromTop = 12
+
+
+    if panelType == "effect":
+        for effectText in effectTexts:
+            piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
+            textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=effectText, font=("Terminal", 9), fill="white")
+
+            canvas.tag_bind(piece, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onPopupModTextClick(event, effectName, slotArg))
+            canvas.tag_bind(textObj, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onPopupModTextClick(event, effectName, slotArg))
+            canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece: onPopupTextEnter(event, pieceObj))
+            canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece: onPopupTextLeave(event, pieceObj))
+
+            popupObjects.append(piece)
+            popupObjects.append(textObj)
+
+            i += 1
+
+    elif panelType == "mod":
+        for modText in modTexts:
+            print(f'{modText=}')
+            piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
+            textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=modText, font=("Terminal", 9), fill="white")
+            
+            canvas.tag_bind(piece, "<Button-1>", lambda event, modName=modText, slotArg=slot: onPopupModTextClick(event, modName, slotArg))
+            canvas.tag_bind(textObj, "<Button-1>", lambda event, modName=modText, slotArg=slot: onPopupModTextClick(event, modName, slotArg))
+            canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece: onPopupTextEnter(event, pieceObj))
+            canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece: onPopupTextLeave(event, pieceObj))
+
+            popupObjects.append(piece)
+            popupObjects.append(textObj)
+
+            i += 1
+
+
+def onPopupClick():
+    
+    pass
+
+def createEffect():
+    pass
+def createModulation():
+    pass
+
+def onDestroyPanel():
+    # update effects or mod dict
+    # remove element from canvas
+    pass
+
+def onPanelClick(event, panelTag):#, panelName):
+    x, y = event.x, event.y
+    slot = int(panelTag[-1])
+
+    # Modulations
+    if "mod" in panelTag:
+        panelType = "mod"
+        panelDict = mods
+
+    # Effects
+    elif "effect" in panelTag:
+        panelType = "effect"
+        panelDict = effects
+
+    if panelDict[slot]:
+        print(f"{panelType}{slot} already full")
+        return
+
+    #panelDict[slot] = "Full"
+
+    createPopup(x, y, panelType, slot)
+
+    print(f'{panelDict}{slot}')
+    # print(event)
+    # print(panelTag)
+
 def buildGUI():
     global root, canvas, keysGUI
     # build root
     root = tk.Tk()    
-    root.geometry("800x405+100+50")
+    root.geometry("800x415+100+50")
     root.resizable(False, False)
     root.title("simplesine")
 
-    canvas = tk.Canvas(root, width=800,height=405, bg="#2B2B2B")
+    canvas = tk.Canvas(root, width=800,height=415, bg="#2B2B2B")
     
     # build 4 sides of window border
     canvas.create_rectangle(0, 0, 800, 10, fill=params.primaryToneLight)
-    canvas.create_rectangle(0, 395, 800, 405, fill=params.primaryToneLight)
+    canvas.create_rectangle(0, 395, 800, 415, fill=params.primaryToneLight)
     canvas.create_rectangle(0, 10, 10, 395, fill=params.primaryToneLight)
     canvas.create_rectangle(790, 10, 800, 395, fill=params.primaryToneLight)
 
+
+    # info text
+    infoText = canvas.create_text(400, 405, text="This texts displays the functionality of the hovered feature.", anchor='c', fill=params.primaryToneDark, font=("Terminal", 10))
+
     # build panels
     bgMid = canvas.create_rectangle(210, 10, 590, 395, fill=params.secondaryToneDark, outline=None)
-    effectsTxt = canvas.create_text(690, 30, text="effects", justify='center', font=("Terminal", 16, 'bold'), fill=params.secondaryToneDark)
-    modulationsTxt = canvas.create_text(110, 30, text="modulations", justify='center', font=("Terminal", 16, 'bold'), fill=params.secondaryToneDark)
     centerTitle = canvas.create_text(400, 305*1/8+10, text="simplesine", justify='center', font=("Terminal", 30, 'bold'), fill=params.primaryToneLight)
     
     panelHeight = 305 # total height - 2 * border - keysHeight
     leftPanelLines = []
+    leftPanels = []
     rightPanelLines = []
     panelLineHeight = 3
-    for i in range(1,4):
+    for i in range(0,4):
         y = (panelHeight/4*i) + 10
+        y2 = (panelHeight/4*(i+1)) + 10
+
+        tagName = f"modPanel{i}"
+
         leftPanelLines.append(canvas.create_rectangle(10, y, 210, y+panelLineHeight, fill=params.secondaryToneDark))
+        panel = canvas.create_rectangle(10, y+panelLineHeight, 210, y2+panelLineHeight, fill=params.secondaryToneLight, activefill=params.primaryToneDark, tags=tagName)
+        print(f"Adding bind to {tagName} tag")
+        canvas.tag_bind(tagName, "<Button-1>", lambda event, currentPanel=tagName: onPanelClick(event, currentPanel))
+
+        tagName = f"effectPanel{i}"
+        panel = canvas.create_rectangle(590, y+panelLineHeight, 790, y2+panelLineHeight, fill=params.secondaryToneLight, activefill=params.primaryToneDark, tags=tagName)
+        canvas.tag_bind(tagName, "<Button-1>", lambda event, currentPanel=tagName: onPanelClick(event, currentPanel))
+
+
+        #leftPanels.append(panel)
+        #print(f"leftPanel{panelNum}")
+        #canvas.tag_bind(f"leftPanel{panelNum}", "<Button-1>", lambda event: onPanelClick(event, leftPanels[panelNum]))
+        #print(f'{canvas.gettags(panel)=}')
+        #canvas.tag_bind(tagName, "<Button-1>", lambda event: inputObj.mouseClicked(event, self.name))
+
+        #panel.bind("<Hover>", lambda event: onPanelMouseHover(event, panel))
+        #tagName = f"rightPanel{panelNum}"
         rightPanelLines.append(canvas.create_rectangle(590, y, 790, y+panelLineHeight, fill=params.secondaryToneDark))
+        #panel = canvas.create_rectangle(590, y+panelLineHeight, 790, y2+panelLineHeight, fill=params.secondaryToneLight, activefill=params.primaryToneDark, tags=tagName)
+
+    # print(leftPanels)
+    # for i in range(4):
+    #     print(f'{i=}')
+    #     canvas.tag_bind(f"leftPanel{i}", "<Button-1>", lambda event: onPanelClick(event, leftPanels[i]))
+
+    # for panel in leftPanels:
+    #     canvas.tag_bind(f"leftPanel{panelNum}", "<Button-1>", lambda event: onPanelClick(event, leftPanels[panelNum]))
+
+    #     print(canvas.gettags(panel))
+
+    modulationsTxt = canvas.create_text(110, 30, text="modulations", justify='center', font=("Terminal", 16, 'bold'), fill=params.secondaryToneDark)
+    effectsTxt = canvas.create_text(690, 30, text="effects", justify='center', font=("Terminal", 16, 'bold'), fill=params.secondaryToneDark)
 
     # build piano keys
     leftx = 10
