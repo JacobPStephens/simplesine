@@ -1,6 +1,11 @@
 import utils
 
 
+# attack: the time from note press to peak volume
+# decay: the time from peak volume to susain volume
+# sustain: the volume while note is held, expressed as percent of peak volume
+# release: the time from sustain volume to silence
+
 # volume
 volume = 1.0
 peakVolume = utils.decibelsToAmplitude(0)
@@ -47,7 +52,8 @@ primaryToneDark = "#1E393F"
 secondaryToneLight = "#2B2B2B"
 secondaryToneDark = "#1E1E1E"
 
-textPadding = 10
+textPaddingADSR = 10
+textPaddingSmall = 8
 dialHeight = 60
 dialWidth = 60
 dialCenter_y = 260
@@ -81,6 +87,37 @@ sliders = {
     }
 
 }
+
+# same code as main.py
+panelHeight = 305
+panelWidth = 200
+xWidth = 30
+effectRectPositions = {}
+effectXPositions = {}
+panelLineHeight = 3
+rightPad = 2
+for i in range(0,4):
+    y = (panelHeight/4*i) + 10 + panelLineHeight
+    y2 = (panelHeight/4*(i+1)) + 10
+    effectRectPositions[i] = [590, y, 790, y2]
+    effectXPositions[i] = [790-xWidth, y, 790-rightPad, y+xWidth]
+    #panel = canvas.create_rectangle(10, y+panelLineHeight, 210, y2+panelLineHeight, fill=params.secondaryToneLight, activefill=params.primaryToneDark, tags=tagName)
+
+# make bottom panel a bit shorter
+effectRectPositions[3][3] -= panelLineHeight
+effectXPositions[3][3] -= 1
+
+
+
+xWidth = 30
+# effectXPositions = {
+#     0: [790-xWidth, 10, 790, 10+xWidth],
+#     1: [],
+#     2: [],
+#     3: [],
+# }
+
+
 
 noteCeiling = 88
 defaultLowestNote = 48
