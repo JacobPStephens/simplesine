@@ -149,34 +149,14 @@ def audioCallback(outdata, frames, time_info, status):
     if peak > 1:
         print(f"clip {peak}")
 
-
-    def hardClip(signal, mix, threshold=0.2):
-        dry = signal * (1-mix)
-        wet = np.clip(signal, -threshold, threshold) * mix
-        return dry + wet
-
-    def softClip(signal, overdrive, mix):
-        signal *= overdrive
-        dry = signal * (1-mix)
-        wet = np.tanh(signal) * mix
-        return dry + wet
-    
-    def halfWave(signal, mix):
-        dry = signal * (1-mix)
-        wet = np.maximum(0, signal) * mix
-        return dry + wet
-
-    # doesn't work with envelopes
-    def square(signal):
-
-        return np.sign(signal) * 0.5 
     
     #signal = softClip(signal, 1.5)
     #distortedSignal = hardClip(signal, 0.2)
 
-    # FOR THE FUTURE:
-    # for EFFECT in EFFECTS:
-    #     signal = EFFECT(signal)
+
+    for effect in effectObjs:
+        if effect:
+            signal = effect.process(signal)
     
 
     #distortedSignal = halfWave(signal)
@@ -185,7 +165,8 @@ def audioCallback(outdata, frames, time_info, status):
     outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
 def draw():
 
-    maxSineHeight = 50
+    maxSineHeight = 100 * params.waveVisualIncrease[waveType]
+
     minSineHeight = 305*3/8+10
     pad = 0
     leftEdge = 210 + pad
@@ -202,7 +183,7 @@ def draw():
     points = []
     for x, y in enumerate(drawingSignal[:numPoints]):
         points.append(x+leftEdge) 
-        points.append(minSineHeight + y*maxSineHeight) # this equation doesn't work how I think it does
+        points.append(minSineHeight + (y*maxSineHeight)) # this equation doesn't work how I think it does
     canvas.delete("wave")
     
 
@@ -215,8 +196,9 @@ def draw():
 
 #EFFECTS: list[callable] = [None] * 4
 
-effects = [None] * 4
+effectObjs = [None] * 4
 mods = [None] * 4
+waveType = "sine"
 
 popupObjects = []
 
@@ -226,7 +208,7 @@ def removePopup():
 
 
 
-def onPopupModTextClick(event, effectName: str, slot: int):
+def onSelectEffect(event, effectName: str, slot: int):
     effectNameToClass = {
         "distortion": Distortion,
         "delay": Delay,
@@ -238,7 +220,7 @@ def onPopupModTextClick(event, effectName: str, slot: int):
 
     # instantiate object of corresponding effect class
     EffectClass = effectNameToClass[effectName]
-    EffectClass(slot)
+    effectObjs[slot] = EffectClass(slot)
 
     removePopup()
 
@@ -280,8 +262,8 @@ def createPopup(x, y, panelType, slot, sourceObj=None):
             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=effectText, font=("Terminal", 9), fill="white")
             
 
-            canvas.tag_bind(piece, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onPopupModTextClick(event, effectName, slotArg))
-            canvas.tag_bind(textObj, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onPopupModTextClick(event, effectName, slotArg))
+            canvas.tag_bind(piece, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
+            canvas.tag_bind(textObj, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
             canvas.tag_bind(textObj, "<Enter>", lambda event, obj=piece, color=params.primaryToneLight: colorChange(event, obj, color))
             canvas.tag_bind(textObj, "<Leave>", lambda event, obj=piece, color=params.primaryToneDark: colorChange(event, obj, color))
 
@@ -312,8 +294,8 @@ def createPopup(x, y, panelType, slot, sourceObj=None):
             piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black") 
             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=distortionText, font=("Terminal", 9), fill="white")
 
-            canvas.tag_bind(piece, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onDistortionSelected(event, distortionType))
-            canvas.tag_bind(textObj, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onDistortionSelected(event, distortionType))
+            canvas.tag_bind(piece, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
+            canvas.tag_bind(textObj, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
             canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece, color=params.primaryToneLight: colorChange(event, pieceObj, color))
             canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece, color=params.primaryToneDark: colorChange(event, pieceObj, color))
 
@@ -366,30 +348,25 @@ def onPanelClick(event, panelTag):#, panelName):
     # Modulations
     if "mod" in panelTag:
         panelType = "mod"
-        panelDict = mods
 
     # Effects
     elif "effect" in panelTag:
         panelType = "effect"
-        panelDict = effects
 
-    if panelDict[slot]:
-        print(f"{panelType}{slot} already full")
-        return
-
-    #panelDict[slot] = "Full"
 
     createPopup(x, y, panelType, slot)
 
-    print(f'{panelDict}{slot}')
 
 def onWaveformTitleClick(event, titleObj):
+    global waveType
     waves = ["sine", "square", "saw"]
     waveType = canvas.itemcget(titleObj, "text")
 
     waveIdx = waves.index(waveType)
     newIdx = (waveIdx + 1) % len(waves)
     newWave = waves[newIdx]
+
+    waveType = newWave
 
 
     diffCharacters = len(newWave) - len(waveType)
@@ -493,8 +470,14 @@ def buildGUI():
 
     canvas.pack()
 
+
+# class ADSRDial(Dial):
+
+
+
+    
 class Dial:
-    def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR):
+    def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj=None, parameter=None):
         self.centerX = centerX
         self.centerY = centerY
         self.diameter = diameter
@@ -504,7 +487,11 @@ class Dial:
         self.label = label
         self.units = units
         self.isADSR = isADSR
+        self.ratioRamp = 2 if self.isADSR else 1
+        self.sourceObj = sourceObj
+        self.parameter = parameter
         self.createDial()
+
 
     def createDial(self):
         if self.isADSR:
@@ -533,10 +520,16 @@ class Dial:
         # calculate current value of ADSR dial given GUI angle
         minDialValue = dialValues[self.name]['min']
         maxDialValue = dialValues[self.name]['max']
-        dialValues[self.name]['curr'] = minDialValue + (maxDialValue - minDialValue) * abs(dialAngle/360)**2
-        # update text to match value
 
-        canvas.itemconfig(self.text, text=f'{self.label}{dialValues[self.name]['curr']:.2f}{self.units}')
+        if self.isADSR:
+            dialValues[self.name]['curr'] = minDialValue + (maxDialValue - minDialValue) * abs(dialAngle/360)**self.ratioRamp
+            canvas.itemconfig(self.text, text=f'{self.label}{dialValues[self.name]['curr']:.2f}{self.units}')
+
+        else:
+            updatedValue = minDialValue + (maxDialValue - minDialValue) * abs(dialAngle/360)**self.ratioRamp
+            setattr(self.sourceObj, self.parameter, updatedValue)
+            canvas.itemconfig(self.text, text=f'{self.label}{getattr(self.sourceObj,self.parameter):.2f}{self.units}')
+
     def destroy(self):
         canvas.delete(self.bg)
         canvas.delete(self.arc)
@@ -544,7 +537,7 @@ class Dial:
 
     def getStartExtent(self):
         currVal = dialValues[self.name]['curr']
-        return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/2)
+        return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/self.ratioRamp)
 
 
 class Slider:
@@ -626,6 +619,7 @@ class UserInput():
         self.activeWidget = None
 
     def mouseClicked(self, event, elementName):
+        print(f'{elementName=}')
         self.activeWidget = self.widgets[elementName]
         self.clickPoint = self.mousePoint
 
@@ -749,8 +743,6 @@ class Note:
     def generate(self, frames, startTimeOfBlock):
 
         timesBySample = startTimeOfBlock + np.arange(frames) / params.samplerate #startTimeOfBlock + np.arange(frames) / sampleRate
-
-
         amplitudes = np.array([self.envelope(t) for t in timesBySample])
 
         # smooth amplitudes between each bus of frames
@@ -760,9 +752,10 @@ class Note:
         phaseIncrement = 2 * np.pi * (self.freq + sliderValues['frequency']['curr'])/ params.samplerate # radians per sample travelled
         phases = np.arange(frames) * phaseIncrement + self.phase
 
-
-        signal = amplitudes * np.sin(phases)
-
+        if waveType == "sine":
+            signal = amplitudes * np.sin(phases)
+        else:
+            signal = amplitudes * np.sign(np.sin(phases)) * params.squareAudioDamp
         self.phase = (self.phase + frames * phaseIncrement) % (2 * np.pi)
 
         # if -0.5 <= self.phase <= 0.5:
@@ -811,6 +804,7 @@ class Effect:
             canvas.delete(canvasItem)
         for widgetItem in self.widgetObjects:
             widgetItem.destroy()
+        effectObjs[self.slot] = None
 
         removePopup()
         # canvas.tag_bind(txtObj, "<Enter>", lambda event, obj=txtObj: onPopupTextEnter(event, obj))
@@ -818,13 +812,31 @@ class Effect:
 
 class Distortion(Effect):
     def __init__(self, slot):
+        self.type = None
+        self.overdrive = 0
+        self.mix = 0
         super().__init__(slot)
         super().drawTitle("distortion")
         self.createOverdriveDial()
         self.createDryWetDial()
         self.createDistortionTypeDropdown()
-        self.type = None
+ 
 
+    def process(self, signal):
+        signal = signal * (1 + self.overdrive * self.mix)
+        dry = signal * (1-self.mix)
+        if self.type == None:
+            wet = 0
+        if self.type == "soft clip":
+            wet = np.tanh(signal) * self.mix
+        elif self.type == "hard clip":
+            threshold = 0.2
+            wet = np.clip(signal, -threshold, threshold) * self.mix
+        elif self.type == "half wave":
+            wet = np.maximum(0, signal) * self.mix
+        return (dry + wet) 
+
+        
     def createOverdriveDial(self):
         print(f'{self.topLeftX=}')
         print(f'{self.topLeftY=}')
@@ -842,7 +854,7 @@ class Distortion(Effect):
         #print(f"again {dialCenterY=}")
         #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
 
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minOverdriveValue, maxOverdriveValue, dialName, label="drive ", units="", isADSR=False)
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minOverdriveValue, maxOverdriveValue, dialName, label="drive ", units="", isADSR=False, sourceObj=self, parameter="overdrive")
         widgets[dialName] = dial
         self.widgetObjects.append(dial)
 
@@ -856,7 +868,7 @@ class Distortion(Effect):
         minDryWet = 0
         maxDryWet = 1
         self.addDialToValues(dialName, minDryWet, maxDryWet, dialCenterX, dialCenterY)
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False)
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
         widgets[dialName] = dial
         self.widgetObjects.append(dial)
 
@@ -870,11 +882,15 @@ class Distortion(Effect):
         self.canvasObjects.append(typeText)
         self.canvasObjects.append(self.currentTypeText)      
 
-    def onDistortionSelected(self, event, selectedType):
+    def onSelectDistortionType(self, event, selectedType):
         removePopup()
         self.type = selectedType
         canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
         print(f"Distortion type is {self.type} in {self.slot}")
+
+        print(f'{self.overdrive=}')
+        print(f'{self.mix=}')
+
 
     def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
         dialValues[key] = {
@@ -889,8 +905,12 @@ class Distortion(Effect):
         
 class Delay(Effect):
     def __init__(self, slot):
+        self.time = 0.5
+        self.mix = 0
         super().__init__(slot)
         super().drawTitle("delay")
+    #def process(self, signal)
+        
     
 class Reverb(Effect):
     def __init__(self, slot):

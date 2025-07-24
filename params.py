@@ -12,12 +12,21 @@ peakVolume = utils.decibelsToAmplitude(0)
 maxVolume = utils.decibelsToAmplitude(0)
 minVolume = 1e-9
 masterDamp = 0.3
+squareAudioDamp = 0.05
 
+# visual
+
+waveVisualIncrease = {
+    "sine": 1,
+    "square" : 50,
+    "saw": 3,
+
+
+}
 # pitch
 freq = 0
 minFreq = -200
 maxFreq = 200
-
 
 # Attack
 defaultAttack = 0.25
