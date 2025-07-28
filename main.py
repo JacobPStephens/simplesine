@@ -15,6 +15,12 @@ volume = params.volume
 
 lowestNote = params.defaultLowestNote
 
+# tmp = int(params.samplerate * params.delayTime)
+# print(f'{tmp=}{type(tmp)=}')
+delaySamples = int(params.samplerate * params.delayTime)
+delayBuffer = np.zeros(delaySamples)
+delayIdx = 0
+
 dialValues = {
     'attack': {
         'curr': params.defaultAttack,
@@ -114,6 +120,7 @@ def main():
 
 def audioCallback(outdata, frames, time_info, status):
     global drawingSignal
+    global delayBuffer, delayIdx
     if status: 
         print(f'{status=}')
     
@@ -159,15 +166,58 @@ def audioCallback(outdata, frames, time_info, status):
             signal = effect.process(signal)
     
 
+    
+    # assuming we never go out of index
+    # asumping delayIndex - delaySamples is never negative. Must handle separately
+    print(f'{delaySamples=}{frames=}')
+
+    #delaySamplesRemaining = delaySamples - delayIndex
+    startReadIdx = (delayIdx - delaySamples) % delaySamples
+    endReadIdx  = startReadIdx + frames
+    startWriteIdx = delayIdx
+    endWriteIdx = startWriteIdx + frames
+
+    # read delay signal from past point in buffer
+    if endReadIdx <= delaySamples:
+        # block will fit without wrapping
+        delaySignal = delayBuffer[startReadIdx:endReadIdx]
+        delayIdx = endReadIdx
+    else:
+        # will wrap; need to split into 2 parts
+        endPart = delayBuffer[startReadIdx:]
+        samplesFromStart = endReadIdx - delaySamples
+        startPart = delayBuffer[:samplesFromStart]
+        delaySignal = np.concatenate((endPart, startPart))
+        delayIdx = samplesFromStart
+
+    # write delay signal to current point in buffer
+    if endWriteIdx <= delaySamples:
+        delayBuffer[startWriteIdx:endWriteIdx] = signal.copy()
+    else:
+        samplesToEnd = delaySamples - startWriteIdx
+        delayBuffer[startWriteIdx:] = signal[:samplesToEnd]
+        samplesFromStart = frames - samplesToEnd
+        delayBuffer[:samplesFromStart] = signal[samplesToEnd:]
+        # samplesFromStart = delaySamples - startWriteIdx
+        # delayBuffer[:samplesFromStart] = signal[:samplesFromStart].copy()
+
+    signal += delaySignal
+    
+
+
     #distortedSignal = halfWave(signal)
     #signal = (1.0*signal) + (0*distortedSignal)
     drawingSignal = signal.copy()
+    if peak > 1:
+        drawingSignal *= (1/peak * params.visualShrink)
     outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
 def draw():
 
-    maxSineHeight = 100 * params.waveVisualIncrease[waveType]
+    ceiling = 50
+    floor = -50
+    midPt = 10+(params.panelHeight*3/8)
+    incr = params.waveVisualIncrease[waveType]
 
-    minSineHeight = 305*3/8+10
     pad = 0
     leftEdge = 210 + pad
     rightEdge = 590 - pad
@@ -181,9 +231,16 @@ def draw():
     #canvas.create_line(100, 200, 200, 200, fill="yellow")
 
     points = []
-    for x, y in enumerate(drawingSignal[:numPoints]):
+    for x, y in enumerate(drawingSignal[numPoints::-1]):
         points.append(x+leftEdge) 
-        points.append(minSineHeight + (y*maxSineHeight)) # this equation doesn't work how I think it does
+
+        heightForPoint = y*incr
+
+        # heightForPoint = max(floor, min(heightForPoint, ceiling))
+        # # if heightForPoint > floor or heightForPoint < ceiling:
+        # #     heightForPoint = m
+        # #     print(f'{y=} out of bounds')
+        points.append(midPt + heightForPoint) # this equation doesn't work how I think it does
     canvas.delete("wave")
     
 
@@ -366,7 +423,7 @@ def onWaveformTitleClick(event, titleObj):
     newIdx = (waveIdx + 1) % len(waves)
     newWave = waves[newIdx]
 
-    waveType = newWave
+    
 
 
     diffCharacters = len(newWave) - len(waveType)
@@ -376,6 +433,8 @@ def onWaveformTitleClick(event, titleObj):
     canvas.itemconfig(titleObj, text=newWave, justify="left")
 
     createPopup(event.x, event.y, "title", None)
+
+    waveType = newWave
 
 def buildGUI():
     global root, canvas, keysGUI
@@ -753,14 +812,14 @@ class Note:
         phases = np.arange(frames) * phaseIncrement + self.phase
 
         if waveType == "sine":
-            signal = amplitudes * np.sin(phases)
-        else:
-            signal = amplitudes * np.sign(np.sin(phases)) * params.squareAudioDamp
-        self.phase = (self.phase + frames * phaseIncrement) % (2 * np.pi)
+            signal = np.sin(phases)
+        elif waveType == "square":
+            signal = np.sign(np.sin(phases)) * params.squareAudioDamp
+        elif waveType == "saw":
+            signal = (2 * ((phases / (2 * np.pi)) % 1) - 1) * params.sawAudioDamp
+        signal *= amplitudes
 
-        # if -0.5 <= self.phase <= 0.5:
-            
-        #     print(self.phase)
+        self.phase = (self.phase + frames * phaseIncrement) % (2 * np.pi)
 
         return signal
 
@@ -830,7 +889,7 @@ class Distortion(Effect):
         if self.type == "soft clip":
             wet = np.tanh(signal) * self.mix
         elif self.type == "hard clip":
-            threshold = 0.2
+            threshold = 0.4
             wet = np.clip(signal, -threshold, threshold) * self.mix
         elif self.type == "half wave":
             wet = np.maximum(0, signal) * self.mix

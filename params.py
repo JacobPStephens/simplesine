@@ -6,23 +6,27 @@ import utils
 # sustain: the volume while note is held, expressed as percent of peak volume
 # release: the time from sustain volume to silence
 
+# tmp delay variables for testing
+delayTime = 0.5
+
 # volume
 volume = 1.0
 peakVolume = utils.decibelsToAmplitude(0)
 maxVolume = utils.decibelsToAmplitude(0)
 minVolume = 1e-9
 masterDamp = 0.3
-squareAudioDamp = 0.05
+squareAudioDamp = 0.2
+sawAudioDamp = 0.2
 
 # visual
-
 waveVisualIncrease = {
-    "sine": 1,
-    "square" : 50,
-    "saw": 3,
-
-
+    "sine": 55,
+    "square" : 150,
+    "saw": 150,
 }
+visualShrink = 0.2
+
+
 # pitch
 freq = 0
 minFreq = -200
