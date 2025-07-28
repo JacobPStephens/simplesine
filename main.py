@@ -17,9 +17,8 @@ lowestNote = params.defaultLowestNote
 
 # tmp = int(params.samplerate * params.delayTime)
 # print(f'{tmp=}{type(tmp)=}')
-delaySamples = int(params.samplerate * params.delayTime)
-delayBuffer = np.zeros(delaySamples)
-delayIdx = 0
+# delaySamples = int(params.samplerate * params.delayTime)
+# delayBuffer = np.zeros(delaySamples)
 
 dialValues = {
     'attack': {
@@ -106,6 +105,7 @@ def main():
     root.bind("<KeyRelease>", inputObj.onKeyReleased)
     root.bind("<Motion>", inputObj.mouseMotion)
     root.bind("<ButtonRelease-1>", inputObj.mouseReleased)
+    root.bind("<Button-3>", inputObj.mouseSecondaryPressed)
 
     root.after(500, draw)
     # listen for midi input
@@ -120,7 +120,7 @@ def main():
 
 def audioCallback(outdata, frames, time_info, status):
     global drawingSignal
-    global delayBuffer, delayIdx
+    #global delayBuffer, delayIdx
     if status: 
         print(f'{status=}')
     
@@ -163,47 +163,16 @@ def audioCallback(outdata, frames, time_info, status):
 
     for effect in effectObjs:
         if effect:
-            signal = effect.process(signal)
+            signal = effect.process(signal, frames)
     
 
     
     # assuming we never go out of index
     # asumping delayIndex - delaySamples is never negative. Must handle separately
-    print(f'{delaySamples=}{frames=}')
 
     #delaySamplesRemaining = delaySamples - delayIndex
-    startReadIdx = (delayIdx - delaySamples) % delaySamples
-    endReadIdx  = startReadIdx + frames
-    startWriteIdx = delayIdx
-    endWriteIdx = startWriteIdx + frames
-
-    # read delay signal from past point in buffer
-    if endReadIdx <= delaySamples:
-        # block will fit without wrapping
-        delaySignal = delayBuffer[startReadIdx:endReadIdx]
-        delayIdx = endReadIdx
-    else:
-        # will wrap; need to split into 2 parts
-        endPart = delayBuffer[startReadIdx:]
-        samplesFromStart = endReadIdx - delaySamples
-        startPart = delayBuffer[:samplesFromStart]
-        delaySignal = np.concatenate((endPart, startPart))
-        delayIdx = samplesFromStart
-
-    # write delay signal to current point in buffer
-    if endWriteIdx <= delaySamples:
-        delayBuffer[startWriteIdx:endWriteIdx] = signal.copy()
-    else:
-        samplesToEnd = delaySamples - startWriteIdx
-        delayBuffer[startWriteIdx:] = signal[:samplesToEnd]
-        samplesFromStart = frames - samplesToEnd
-        delayBuffer[:samplesFromStart] = signal[samplesToEnd:]
-        # samplesFromStart = delaySamples - startWriteIdx
-        # delayBuffer[:samplesFromStart] = signal[:samplesFromStart].copy()
-
-    signal += delaySignal
     
-
+    
 
     #distortedSignal = halfWave(signal)
     #signal = (1.0*signal) + (0*distortedSignal)
@@ -589,14 +558,22 @@ class Dial:
             setattr(self.sourceObj, self.parameter, updatedValue)
             canvas.itemconfig(self.text, text=f'{self.label}{getattr(self.sourceObj,self.parameter):.2f}{self.units}')
 
+            if "delay" in self.name:
+                self.sourceObj.delayTimeChanged(updatedValue)
+
     def destroy(self):
         canvas.delete(self.bg)
         canvas.delete(self.arc)
         canvas.delete(self.text)
 
     def getStartExtent(self):
-        currVal = dialValues[self.name]['curr']
+
+        if self.isADSR:
+            currVal = dialValues[self.name]['curr']
+        else:
+            currVal = getattr(self.sourceObj,self.parameter)
         return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/self.ratioRamp)
+        # return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/self.ratioRamp)
 
 
 class Slider:
@@ -685,10 +662,12 @@ class UserInput():
         if self.activeWidget.name in sliderValues:
             self.widgets[self.activeWidget.name].update(self.clickPoint, self.mousePoint)
 
+    def mouseSecondaryPressed(self, event):
+        removePopup()
 
     def mouseReleased(self, event):
         self.activeWidget = None
-        #print(event.x, event.y)
+        print(event.x, event.y)
 
     def mouseMotion(self, event):
         self.mousePoint = (event.x, event.y)
@@ -873,7 +852,7 @@ class Distortion(Effect):
     def __init__(self, slot):
         self.type = None
         self.overdrive = 0
-        self.mix = 0
+        self.mix = 0.5
         super().__init__(slot)
         super().drawTitle("distortion")
         self.createOverdriveDial()
@@ -881,7 +860,7 @@ class Distortion(Effect):
         self.createDistortionTypeDropdown()
  
 
-    def process(self, signal):
+    def process(self, signal, frames):
         signal = signal * (1 + self.overdrive * self.mix)
         dry = signal * (1-self.mix)
         if self.type == None:
@@ -889,7 +868,7 @@ class Distortion(Effect):
         if self.type == "soft clip":
             wet = np.tanh(signal) * self.mix
         elif self.type == "hard clip":
-            threshold = 0.4
+            threshold = 0.2
             wet = np.clip(signal, -threshold, threshold) * self.mix
         elif self.type == "half wave":
             wet = np.maximum(0, signal) * self.mix
@@ -914,7 +893,9 @@ class Distortion(Effect):
         #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
 
         dial = Dial(dialCenterX, dialCenterY, dialDiameter, minOverdriveValue, maxOverdriveValue, dialName, label="drive ", units="", isADSR=False, sourceObj=self, parameter="overdrive")
+
         widgets[dialName] = dial
+        print(f'start extent= {self.mix*360}')
         self.widgetObjects.append(dial)
 
     def createDryWetDial(self):
@@ -928,8 +909,10 @@ class Distortion(Effect):
         maxDryWet = 1
         self.addDialToValues(dialName, minDryWet, maxDryWet, dialCenterX, dialCenterY)
         dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
+
         widgets[dialName] = dial
         self.widgetObjects.append(dial)
+
 
     def createDistortionTypeDropdown(self):
         xPad = 10
@@ -965,12 +948,131 @@ class Distortion(Effect):
 class Delay(Effect):
     def __init__(self, slot):
         self.time = 0.5
-        self.mix = 0
+        self.feedback = 0
+        self.mix = 0.5
+
+        self.delaySamples = int(params.samplerate * self.time)
+        self.delayBuffer = np.zeros(self.delaySamples)
+        self.delayIdx = 0
         super().__init__(slot)
         super().drawTitle("delay")
+        self.createTimeDial()
+        self.createFeedbackDial()
+        self.createDryWetDial()
     #def process(self, signal)
-        
+
+    def process(self, signal, frames):
+
+        startReadIdx = (self.delayIdx - self.delaySamples) % self.delaySamples
+        endReadIdx  = startReadIdx + frames
+        startWriteIdx = self.delayIdx
+        endWriteIdx = startWriteIdx + frames
+
+        # read delay signal from past point in buffer
+        if endReadIdx <= self.delaySamples:
+            # block will fit without wrapping
+            delaySignal = self.delayBuffer[startReadIdx:endReadIdx]
+        else:
+            # will wrap; need to split into 2 parts
+            endPart = self.delayBuffer[startReadIdx:]
+            samplesFromStart = endReadIdx - self.delaySamples
+            startPart = self.delayBuffer[:samplesFromStart]
+            delaySignal = np.concatenate((endPart, startPart))
+
+        if len(delaySignal) > frames:
+            delaySignal = delaySignal[:frames] # force shape to be the same
+
+        writeSignal = signal + (delaySignal * self.feedback)
+        signal = signal + (delaySignal * self.mix)
+
+        # write delay signal to current point in buffer
+        if endWriteIdx <= self.delaySamples:
+            self.delayBuffer[startWriteIdx:endWriteIdx] = writeSignal.copy()
+        else:
+            samplesToEnd = self.delaySamples - startWriteIdx
+            self.delayBuffer[startWriteIdx:] = writeSignal[:samplesToEnd]
+            samplesFromStart = frames - samplesToEnd
+            self.delayBuffer[:samplesFromStart] = writeSignal[samplesToEnd:]
+
+        self.delayIdx = endWriteIdx % self.delaySamples
+        return signal
     
+    def delayTimeChanged(self, updatedTime):
+        print(f'in delay time changed... {updatedTime=}')
+        self.delaySamples = int(params.samplerate * updatedTime)
+        self.delayBuffer = np.zeros(self.delaySamples)
+        self.delayIdx = 0
+
+    def createTimeDial(self):
+        print(f'{self.topLeftX=}')
+        print(f'{self.topLeftY=}')
+        dialCenterX = (self.topLeftX + (params.panelWidth /3))
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
+        print(f'{dialCenterX=}')
+        print(f'{dialCenterY=}')
+        dialDiameter = 30
+        minDelayTime = 0
+        maxDelayTime = 2
+
+        dialName = f"delay{self.slot}Time"
+        self.addDialToValues(dialName, minDelayTime, maxDelayTime, dialCenterX, dialCenterY)
+
+        #print(f"again {dialCenterY=}")
+        #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
+
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDelayTime, maxDelayTime, dialName, label="time ", units="s", isADSR=False, sourceObj=self, parameter="time")
+
+        widgets[dialName] = dial
+        print(f'start extent= {self.mix*360}')
+
+        self.widgetObjects.append(dial)
+
+    def createFeedbackDial(self):
+        print(f'{self.topLeftX=}')
+        print(f'{self.topLeftY=}')
+        dialCenterX = (self.topLeftX + (params.panelWidth *2/3))
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
+        print(f'{dialCenterX=}')
+        print(f'{dialCenterY=}')
+        dialDiameter = 30
+        minFeedbackValue = 0
+        maxFeedbackValue = 1
+
+        dialName = f"delay{self.slot}Feedback"
+        self.addDialToValues(dialName, minFeedbackValue, maxFeedbackValue, dialCenterX, dialCenterY)
+
+        #print(f"again {dialCenterY=}")
+        #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
+
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minFeedbackValue, maxFeedbackValue, dialName, label="feedback ", units="", isADSR=False, sourceObj=self, parameter="feedback")
+
+        widgets[dialName] = dial
+        print(f'start extent= {self.mix*360}')
+        self.widgetObjects.append(dial)
+
+    def createDryWetDial(self):
+        print(f'{self.topLeftX=}{self.topLeftY=}')
+        xPad = 83
+        yPad = 10
+        dialCenterX = (self.topLeftX + (params.panelWidth / 2) + xPad)
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2 + yPad)
+        dialDiameter = 20
+        dialName = f"delay{self.slot}DryWet"
+        minDryWet = 0
+        maxDryWet = 1
+        self.addDialToValues(dialName, minDryWet, maxDryWet, dialCenterX, dialCenterY)
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
+        widgets[dialName] = dial
+        self.widgetObjects.append(dial)
+
+    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
+        dialValues[key] = {
+            'curr': 0,
+            'min': minValue,
+            'max': maxValue,
+            'centerX': centerX,
+            'centerY': centerY
+        }
 class Reverb(Effect):
     def __init__(self, slot):
         super().__init__(slot)
