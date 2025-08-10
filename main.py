@@ -284,96 +284,6 @@ class Dropdown:
             canvas.delete(obj)
         self.objects = []
         print('delted popup line 286s')
-    
-# def createPopup(x, y, panelType, slot, sourceObj=None):
-#     removePopup()
-#     # prevent pop-up from going off-screen
-
-#     if panelType == "effect":
-#         x = max(min(x, 750), 630)
-#     elif panelType == "mod":
-#         x = max(min(x, 170), 50)
-
-#     elif panelType == "distortion":
-#         pass
-#     #x = max(x, 20)
-#     popupWidth = 80
-#     popupHeight = 90
-#     effectTexts = ["distortion", "compressor", "delay", "filter"] 
-#     modTexts = ["oscillator", "envelope"]
-#     distortionTexts = ["soft clip", "hard clip", "half wave"]
-#     filterTexts = ["low-pass", "high-pass"]
-#     waveTexts = ["sine", "square", "saw"]
-#     pieceHeight = popupHeight / len(effectTexts)
-#     #popup = canvas.create_rectangle(x-(popupWidth/2), y, x+(popupWidth/2), y+(popupHeight/2), fill="green")
-
-#     delta_y = 25
-#     i = 0
-#     padFromTop = 12
-
-#     if panelType == "effect":
-#         for effectText in effectTexts:
-#             piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
-#             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=effectText, font=("Terminal", 9), fill="white")
-            
-
-#             canvas.tag_bind(piece, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
-#             canvas.tag_bind(textObj, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
-#             canvas.tag_bind(textObj, "<Enter>", lambda event, obj=piece, color=params.primaryToneLight: colorChange(event, obj, color))
-#             canvas.tag_bind(textObj, "<Leave>", lambda event, obj=piece, color=params.primaryToneDark: colorChange(event, obj, color))
-
-#             popupObjects.append(piece)
-#             popupObjects.append(textObj)
-#             i += 1
-
-
-
-#     # elif panelType == "mod":
-#     #     for waveText in modTexts:
-#     #         piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
-#     #         textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=waveText, font=("Terminal", 9), fill="white")
-            
-#     #         canvas.tag_bind(piece, "<Button-1>", lambda event, modName=waveText, slotArg=slot, ownerObj=sourceObj: onPopupModTextClick(event, modName, slotArg))
-#     #         canvas.tag_bind(textObj, "<Button-1>", lambda event, modName=waveText, slotArg=slot, ownerObj=sourceObj: onPopupModTextClick(event, modName, slotArg))
-#     #         canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece: hoverColorChange(event, pieceObj))
-#     #         canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece: onLeaveColorChange(event, pieceObj))
-
-#     #         popupObjects.append(piece)
-#     #         popupObjects.append(textObj)
-#     #         i += 1
-
-
-#     elif panelType == "distortion":
-#         assert sourceObj
-#         for distortionText in distortionTexts:
-#             piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black") 
-#             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=distortionText, font=("Terminal", 9), fill="white")
-
-#             canvas.tag_bind(piece, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
-#             canvas.tag_bind(textObj, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
-#             canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece, color=params.primaryToneLight: colorChange(event, pieceObj, color))
-#             canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece, color=params.primaryToneDark: colorChange(event, pieceObj, color))
-
-#             popupObjects.append(piece)
-#             popupObjects.append(textObj)
-
-#             i += 1
-#     elif panelType == "filter":
-
-#         for filterText in filterTexts:
-#             piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black") 
-#             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=filterText, font=("Terminal", 9), fill="white")
-            
-#             canvas.tag_bind(piece, "<Button-1>", lambda event, filterType=filterText: sourceObj.onSelectFilterType(event, filterType))
-#             canvas.tag_bind(textObj, "<Button-1>", lambda event, filterType=filterText: sourceObj.onSelectFilterType(event, filterType))
-#             canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece, color=params.primaryToneLight: colorChange(event, pieceObj, color))
-#             canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece, color=params.primaryToneDark: colorChange(event, pieceObj, color))
-
-#             popupObjects.append(piece)
-#             popupObjects.append(textObj)
-
-#             i += 1
-  
 
 def onPanelClick(event, panelTag):
     x, y = event.x, event.y
@@ -392,9 +302,6 @@ def onPanelClick(event, panelTag):
         callback = onSelectEffect
 
     Dropdown(x, y, options, slot, panelType, callback)
-
-    #createPopup(x, y, panelType, slot)
-
 
 def onWaveformTitleClick(event, titleObj):
     global waveType
