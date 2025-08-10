@@ -3,7 +3,8 @@ import numpy as np
 import sounddevice as sd
 import threading, mido, utils, params, time, os
 
-import random
+
+import classes.distortion as distortion
 
 # global synth settings
 attack = params.defaultAttack
@@ -14,6 +15,15 @@ peakVolume = params.peakVolume
 volume = params.volume
 
 lowestNote = params.defaultLowestNote
+
+
+class Storage:
+    def __init__(self):
+        self.dropdowns = []
+
+
+storage = Storage()
+
 
 # tmp = int(params.samplerate * params.delayTime)
 # print(f'{tmp=}{type(tmp)=}')
@@ -65,6 +75,85 @@ sliderValues = {
 
         
 
+class PanelComponent:
+    def __init__(self, title, slot):
+        self.title = ""
+        self.canvasObjects = []
+        self.rectCorners = params.effectRectPositions[slot]
+        self.XCorners = params.effectXPositions[slot]
+        self.topLeftX = params.effectRectPositions[slot][0]
+        self.topLeftY = params.effectRectPositions[slot][1]
+        self.widgetObjects = []
+        self.dropdown = None
+        self.title = title
+        self.buildRectangle()
+        self.buildX()
+        self.drawTitle()
+
+    def buildRectangle(self):
+        panelObj = canvas.create_rectangle(self.rectCorners, fill=params.primaryToneDark)
+        self.canvasObjects.append(panelObj)
+
+    def buildX(self):
+        x_bgObj = canvas.create_rectangle(self.XCorners, fill=params.secondaryToneLight, activefill="white", outline=params.secondaryToneDark, width=1.5)
+        x_txtObj = canvas.create_text((self.XCorners[0]+self.XCorners[2])/2, (self.XCorners[1]+self.XCorners[3])/2, text="x", fill=params.primaryToneLight,  font=("Terminal", 14))
+        self.canvasObjects.append(x_bgObj)
+        self.canvasObjects.append(x_txtObj)
+
+        # add color change on mouse-over
+        canvas.tag_bind(x_txtObj, "<Enter>", lambda event, obj=x_bgObj, color="white": colorChange(event, obj, color))
+        canvas.tag_bind(x_txtObj, "<Leave>", lambda event, obj=x_bgObj, color=params.secondaryToneLight: colorChange(event, obj, color))
+        # add destroyTag to both bg and txt objects
+        canvas.tag_bind(x_bgObj, "<Button-1>", self.destroy)
+        canvas.tag_bind(x_txtObj, "<Button-1>", self.destroy)
+
+    def drawTitle(self):
+        topPad = 10
+        titleTxt = canvas.create_text(self.topLeftX+(params.panelWidth/2), self.topLeftY+topPad, text=self.title, font=("Terminal", 12, 'bold'), fill=params.primaryToneLight)
+        self.canvasObjects.append(titleTxt)
+
+    def destroy(self, event):
+        for canvasItem in self.canvasObjects:
+            canvas.delete(canvasItem)
+        for widgetItem in self.widgetObjects:
+            widgetItem.destroy()
+        effectObjs[self.slot-4] = None
+
+        if self.dropdown:
+            self.dropdown.removeDropdown()
+
+    def buildDial(self, name, centerX, centerY, diameter, minValue, maxValue, sourceObj, parameter, label="", units="", isADSR=False, ratioRamp=1):
+        self.addDialToValues(name, minValue, maxValue, centerX, centerY)
+        dial = Dial(centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj, parameter, ratioRamp)
+        widgets[name] = dial
+        sourceObj.widgetObjects.append(dial)
+
+    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
+        dialValues[key] = {
+            'curr': 0,
+            'min': minValue,
+            'max': maxValue,
+            'centerX': centerX,
+            'centerY': centerY,
+        }
+    def createDropdownListener(self, options):
+        xPad = 10
+        yPad = 30
+        typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
+        canvas.tag_bind(typeText, "<Button-1>", lambda event, options=options: self.initDropdown(event, options))
+
+        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
+        self.canvasObjects.append(typeText)
+        self.canvasObjects.append(self.currentTypeText)    
+    
+    def initDropdown(self, event, options):
+        # create dropdown and remember it in case of removal through "X" button
+        self.dropdown = Dropdown(event.x, event.y, options, self.slot, "effect", self.onSelectOption)
+
+    def onSelectOption(self,event, selectedOption, slot, sourceObj):
+        self.type = selectedOption
+        canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
+        sourceObj.removeDropdown()
 
 #pitch = b
 
@@ -152,20 +241,16 @@ def audioCallback(outdata, frames, time_info, status):
     signal *= params.smoothedGain * sliderValues['volume']['curr'] * params.masterDamp
     peak = np.max(np.abs(signal))
 
-    # def compressor():
-    #     peak = np.max(np.abs(signal)) + 1e-10
-    #     if peak > threshold:
-
-            
-        # for sample in signal:
-        #     if sample > threshold:
-        #         sample = sample / ratio
-
-
-    
+   
     if peak > 1:
         print(f"clip {peak}")
 
+    # # apply modulations
+    # for mod in modObjs:
+    #     if mod:
+    #         mod.updateParam()
+
+    # apply effects
     for effect in effectObjs:
         if effect:
             signal = effect.process(signal, frames)
@@ -218,7 +303,7 @@ def draw():
 #EFFECTS: list[callable] = [None] * 4
 
 effectObjs = [None] * 4
-mods = [None] * 4
+modObjs = [None] * 4
 waveType = "sine"
 
 popupObjects = []
@@ -228,22 +313,46 @@ def removePopup():
         canvas.delete(obj)
 
 
-
-def onSelectEffect(event, effectName: str, slot: int, sourceObj):
-    effectNameToClass = {
-        "distortion": Distortion,
-        "delay": Delay,
-        "compressor": Compressor,
-        "filter": Filter
-
-    }
-    print(f"Clicked on {effectName} goes to slot {slot}")  
-
-    # instantiate object of corresponding effect class
-    EffectClass = effectNameToClass[effectName]
-    effectObjs[slot] = EffectClass(slot)
+# called as "callback" function in Dropdown class
+def onSelectMod(event, modType, slot, sourceObj):
+    print(f"Clicked on {modType} goes to slot {slot}")  
+    if modType == "oscillator":
+        modObj = Oscillator(slot)
+    elif modType == "envelope":
+        modObj = Envelope(slot)
+    
+    modObjs[slot] = modObj
 
     sourceObj.removeDropdown()
+    # instantiate object of corresponding effect class
+
+# called as "callback" function in Dropdown class
+def onSelectEffect(event, effectType: str, slot: int, sourceObj):
+
+    print(f"Clicked on {effectType} goes to slot {slot}")  
+
+    if effectType == "distortion":
+        effectObj = distortion(slot)
+    elif effectType == "delay":
+        effectObj = Delay(slot)
+    elif effectType == "compressor":
+        effectObj = Compressor(slot)
+    elif effectType == "filter":
+        effectObj = Filter(slot)
+
+    effectObjs[slot-4] = effectObj
+    sourceObj.removeDropdown()
+
+    # effectNameToClass = {
+    #     "distortion": Distortion,
+    #     "delay": Delay,
+    #     "compressor": Compressor,
+    #     "filter": Filter
+    # # instantiate object of corresponding effect class
+    # EffectClass = effectNameToClass[effectType]
+    # effectObjs[slot-4] = EffectClass(slot)
+
+
 
 def colorChange(event, piece, color):
     canvas.itemconfig(piece, fill=color)
@@ -253,14 +362,15 @@ def colorChange(event, piece, color):
 
 
 class Dropdown:
-    global canvas
+    global canvas, storage
     def __init__(self, x: int, y: int, options: list[str], slot: int, panelType: str, callback: callable):
         self.options = options
         self.objects = []
+        self.removeExistingDropdowns()
         self.createDropdown(x, y, slot, panelType, callback)
+        storage.dropdowns.append(self)
 
     def createDropdown(self, x, y, slot, panelType, callback):
-
         popupWidth = 80
         topPadding = 12
         elementHeight = 25
@@ -284,6 +394,11 @@ class Dropdown:
             canvas.delete(obj)
         self.objects = []
         print('delted popup line 286s')
+    
+    def removeExistingDropdowns(self):
+        for dropdown in storage.dropdowns:
+            dropdown.removeDropdown()
+        storage.dropdowns = []
 
 def onPanelClick(event, panelTag):
     x, y = event.x, event.y
@@ -293,7 +408,7 @@ def onPanelClick(event, panelTag):
     if "mod" in panelTag:
         panelType = "mod"
         options = ["oscillator", "envelope"]
-        callback = None # CHANGE TO ON SELECT MOD
+        callback = onSelectMod # CHANGE TO ON SELECT MOD
 
     # Effects
     elif "effect" in panelTag:
@@ -363,7 +478,7 @@ def buildGUI():
         panel = canvas.create_rectangle(10, y+panelLineHeight, 210, y2+panelLineHeight, fill=params.secondaryToneLight, activefill=params.primaryToneDark, tags=tagName)
         canvas.tag_bind(tagName, "<Button-1>", lambda event, currentPanel=tagName: onPanelClick(event, currentPanel))
 
-        tagName = f"effectPanel{i}"
+        tagName = f"effectPanel{i+4}"
         panel = canvas.create_rectangle(590, y+panelLineHeight, 790, y2+panelLineHeight, fill=params.secondaryToneLight, activefill=params.primaryToneDark, tags=tagName)
         canvas.tag_bind(tagName, "<Button-1>", lambda event, currentPanel=tagName: onPanelClick(event, currentPanel))
         rightPanelLines.append(canvas.create_rectangle(590, y, 790, y+panelLineHeight, fill=params.secondaryToneDark))
@@ -708,329 +823,303 @@ class Note:
 
         return signal
 
-class Effect:
-    def __init__(self, effectType: str, slot: int):
-        self.effectType = effectType
-        self.slot = slot
-        self.rectCorners = params.effectRectPositions[slot]
-        self.dropdown = None
-        self.XCorners = params.effectXPositions[slot]
-        self.canvasObjects = []
-        self.widgetObjects = []
-        self.topLeftX = params.effectRectPositions[slot][0]
-        self.topLeftY = params.effectRectPositions[slot][1]
 
-        self.buildRectangle()
-        self.buildX()
-        self.drawTitle()
 
-    def createDropdownListener(self, options):
-        print('in super create drop down listener')
-        xPad = 10
-        yPad = 30
-        typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
-        canvas.tag_bind(typeText, "<Button-1>", lambda event, options=options: self.initDropdown(event, options))
 
-        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
-        self.canvasObjects.append(typeText)
-        self.canvasObjects.append(self.currentTypeText)    
+# class Modulation(PanelComponent):
+#     def __init__(self, title, slot):
+#         super().__init__(title, slot)
+
+#     def createParamListener(self):
+#         xPad = 140
+#         yPad = 40
+#         paramText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="param", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
+#         #canvas.tag_bind(typeText, "<Button-1>", lambda event, options=options: self.initDropdown(event, options))
+
+#         self.currentParamText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
+#         self.canvasObjects.append(paramText)
+#         self.canvasObjects.append(self.currentParamText) 
     
-    def initDropdown(self, event, options):
-        # create dropdown and remember it in case of removal through "X" button
-        self.dropdown = Dropdown(event.x, event.y, options, self.slot, "effect", self.onSelectDistortionType)
+# class Oscillator(Modulation):
+#     def __init__(self, slot):
+#         super().__init__(title="oscillator", slot=slot)
+#         self.slot = slot
+#         self.rate = 50
+#         self.depth = 0.5
+#         self.param = None
 
-    def onSelectDistortionType(self,event, selectedOption, slot, sourceObj):
-        self.type = selectedOption
-        canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
-        sourceObj.removeDropdown()
+#         PanelComponent.buildDial(
+#             self,
+#             name = f"oscillator{self.slot}Rate", 
+#             centerX = self.topLeftX + params.panelWidth * 1/4,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = 1e-9,
+#             maxValue = 20,
+#             sourceObj = self,
+#             parameter = "rate",
+#             label="rate ",
+#             units=" Hz",
+#             ratioRamp = 2
+#         )
 
-    def buildDial(self, name, centerX, centerY, diameter, minValue, maxValue, sourceObj, parameter, label="", units="", isADSR=False, ratioRamp=1):
-        self.addDialToValues(name, minValue, maxValue, centerX, centerY)
-        dial = Dial(centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj, parameter, ratioRamp)
-        widgets[name] = dial
-        sourceObj.widgetObjects.append(dial)
+#         PanelComponent.buildDial(
+#             self,
+#             name = f"oscillator{self.slot}Depth", 
+#             centerX = self.topLeftX + params.panelWidth * 2/4,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = 0,
+#             maxValue = 1,
+#             sourceObj = self,
+#             parameter = "depth",
+#             label="depth "
+#         )
 
-    def buildRectangle(self):
-        panelObj = canvas.create_rectangle(self.rectCorners, fill=params.primaryToneDark)
-        self.canvasObjects.append(panelObj)
+#         super().createParamListener()
 
-    def buildX(self):
-        x_bgObj = canvas.create_rectangle(self.XCorners, fill=params.secondaryToneLight, activefill="white", outline=params.secondaryToneDark, width=1.5)
-        x_txtObj = canvas.create_text((self.XCorners[0]+self.XCorners[2])/2, (self.XCorners[1]+self.XCorners[3])/2, text="x", fill=params.primaryToneLight,  font=("Terminal", 14))
-        self.canvasObjects.append(x_bgObj)
-        self.canvasObjects.append(x_txtObj)
 
-        # add color change on mouse-over
-        canvas.tag_bind(x_txtObj, "<Enter>", lambda event, obj=x_bgObj, color="white": colorChange(event, obj, color))
-        canvas.tag_bind(x_txtObj, "<Leave>", lambda event, obj=x_bgObj, color=params.secondaryToneLight: colorChange(event, obj, color))
-        # add destroyTag to both bg and txt objects
-        canvas.tag_bind(x_bgObj, "<Button-1>", self.destroy)
-        canvas.tag_bind(x_txtObj, "<Button-1>", self.destroy)
+# class Envelope(Modulation):
+#     def __init__(self, slot):
+#         super().__init__(title="envelope", slot=slot)
+#         self.slot = slot
+#         self.attack = 1
+#         self.decay = 1
+#         self.sustain = 1
+#         self.release = 1
+#         self.param = None
 
-    def drawTitle(self):
-        topPad = 10
-        titleTxt = canvas.create_text(self.topLeftX+(params.panelWidth/2), self.topLeftY+topPad, text=self.effectType, font=("Terminal", 12, 'bold'), fill=params.primaryToneLight)
-        self.canvasObjects.append(titleTxt)
+#         xPad = -15
+#         PanelComponent.buildDial(
+#             self,
+#             name = f"envelope{self.slot}Attack", 
+#             centerX = self.topLeftX + params.panelWidth * 1/6 + xPad,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 20,
+#             minValue = 1e-9,
+#             maxValue = 5,
+#             sourceObj = self,
+#             parameter = "attack",
+#             label="A=",
+#             ratioRamp=2
+#         )
 
-    def destroy(self, event):
-        for canvasItem in self.canvasObjects:
-            canvas.delete(canvasItem)
-        for widgetItem in self.widgetObjects:
-            widgetItem.destroy()
-        effectObjs[self.slot] = None
+#         PanelComponent.buildDial(
+#             self,
+#             name = f"envelope{self.slot}Decay", 
+#             centerX = self.topLeftX + params.panelWidth * 2/6 + xPad,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 20,
+#             minValue = 1e-9,
+#             maxValue = 5,
+#             sourceObj = self,
+#             parameter = "decay",
+#             label="D=",
+#             ratioRamp=2
+#         )
 
-        if self.dropdown:
-            self.dropdown.removeDropdown()
+#         PanelComponent.buildDial(
+#             self,
+#             name = f"envelope{self.slot}Sustain", 
+#             centerX = self.topLeftX + params.panelWidth * 3/6 + xPad,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 20,
+#             minValue = 1e-9,
+#             maxValue = 1,
+#             sourceObj = self,
+#             parameter = "sustain",
+#             label="S=",
+#         )
 
-        #removePopup()
-        # canvas.tag_bind(txtObj, "<Enter>", lambda event, obj=txtObj: onPopupTextEnter(event, obj))
-        # canvas.tag_bind(txtObj, "<Leave>", lambda event, obj=txtObj: onPopupTextLeave(event, obj))
-    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
-        dialValues[key] = {
-            'curr': 0,
-            'min': minValue,
-            'max': maxValue,
-            'centerX': centerX,
-            'centerY': centerY,
-        }
+#         PanelComponent.buildDial(
+#             self,
+#             name = f"envelope{self.slot}Release", 
+#             centerX = self.topLeftX + params.panelWidth * 4/6 + xPad,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 20,
+#             minValue = 1e-9,
+#             maxValue = 5,
+#             sourceObj = self,
+#             parameter = "release",
+#             label="R=",
+#             ratioRamp=2
+#         )
+
+#         super().createParamListener()
+
+
+
+
+# class Delay(Effect):
+#     def __init__(self, slot):
+#         self.time = 0.5
+#         self.feedback = 0
+#         self.mix = 0.5
+#         self.delaySamples = int(params.samplerate * self.time)
+#         self.delayBuffer = np.zeros(self.delaySamples)
+#         self.delayIdx = 0
+#         super().__init__("delay", slot)
+
+#         super().buildDial(
+#             name = f"delay{self.slot}Time", 
+#             centerX = self.topLeftX + params.panelWidth / 3,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = 0,
+#             maxValue = 2,
+#             sourceObj = self,
+#             parameter = "time",
+#             label="time "
+#         )
+#         super().buildDial(
+#             name = f"delay{self.slot}Feedback", 
+#             centerX = self.topLeftX + params.panelWidth *2/3,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = 0,
+#             maxValue = 1,
+#             sourceObj = self,
+#             parameter = "feedback",
+#             label="feedback "
+#         )
+#         super().createDryWetDial()
+
+#     def process(self, signal, frames):
+#         startReadIdx = (self.delayIdx - self.delaySamples) % self.delaySamples
+#         endReadIdx  = startReadIdx + frames
+#         startWriteIdx = self.delayIdx
+#         endWriteIdx = startWriteIdx + frames
+
+#         # read delay signal from past point in buffer
+#         if endReadIdx <= self.delaySamples:
+#             # block will fit without wrapping
+#             delaySignal = self.delayBuffer[startReadIdx:endReadIdx]
+#         else:
+#             # will wrap; need to split into 2 parts
+#             endPart = self.delayBuffer[startReadIdx:]
+#             samplesFromStart = endReadIdx - self.delaySamples
+#             startPart = self.delayBuffer[:samplesFromStart]
+#             delaySignal = np.concatenate((endPart, startPart))
+
+#         if len(delaySignal) > frames:
+#             delaySignal = delaySignal[:frames] # force shape to be the same
+
+#         writeSignal = signal + (delaySignal * self.feedback)
+#         signal = signal + (delaySignal * self.mix)
+
+#         # write delay signal to current point in buffer
+#         if endWriteIdx <= self.delaySamples:
+#             self.delayBuffer[startWriteIdx:endWriteIdx] = writeSignal.copy()
+#         else:
+#             samplesToEnd = self.delaySamples - startWriteIdx
+#             self.delayBuffer[startWriteIdx:] = writeSignal[:samplesToEnd]
+#             samplesFromStart = frames - samplesToEnd
+#             self.delayBuffer[:samplesFromStart] = writeSignal[samplesToEnd:]
+
+#         self.delayIdx = endWriteIdx % self.delaySamples
+#         return signal
     
-class Distortion(Effect):
-    def __init__(self, slot):
-        self.type = None
-        self.overdrive = 0
-        self.mix = 0.5
-        super().__init__(effectType="distortion", slot=slot)
-        super().buildDial(
-            name = f"distortion{self.slot}Overdrive", 
-            centerX = self.topLeftX + params.panelWidth / 2,
-            centerY = self.topLeftY + params.panelHeight / 8,
-            diameter = 30,
-            minValue = 0,
-            maxValue = 2,
-            sourceObj = self,
-            parameter = "overdrive",
-            label="drive "
-        )
-        dryWetPad = {'x': 83, 'y': 10}
-        super().buildDial(
-            name = f"distortion{self.slot}DryWet", 
-            centerX = self.topLeftX + params.panelWidth / 2 + dryWetPad['x'],
-            centerY = self.topLeftY + params.panelHeight / 8  + dryWetPad['y'],
-            diameter = 20,
-            minValue = 0,
-            maxValue = 1,
-            sourceObj = self,
-            parameter = "mix"
-        )
-        options = ["soft clip", "hard clip", "half wave"]
-        super().createDropdownListener(options)
-
-    def process(self, signal, frames):
-        signal = signal * (1 + self.overdrive * self.mix)
-        dry = signal * (1-self.mix)
-        if self.type == None:
-            wet = 0
-        if self.type == "soft clip":
-            wet = np.tanh(signal) * self.mix
-        elif self.type == "hard clip":
-            threshold = 0.2
-            wet = np.clip(signal, -threshold, threshold) * self.mix
-        elif self.type == "half wave":
-            wet = np.maximum(0, signal) * self.mix
-        return (dry + wet) 
-
-class Delay(Effect):
-    def __init__(self, slot):
-        self.time = 0.5
-        self.feedback = 0
-        self.mix = 0.5
-
-        self.delaySamples = int(params.samplerate * self.time)
-        self.delayBuffer = np.zeros(self.delaySamples)
-        self.delayIdx = 0
-        super().__init__("delay", slot)
-
-        super().buildDial(
-            name = f"delay{self.slot}Time", 
-            centerX = self.topLeftX + params.panelWidth / 3,
-            centerY = self.topLeftY + params.panelHeight / 8,
-            diameter = 30,
-            minValue = 0,
-            maxValue = 2,
-            sourceObj = self,
-            parameter = "time",
-            label="time "
-        )
-        super().buildDial(
-            name = f"delay{self.slot}Feedback", 
-            centerX = self.topLeftX + params.panelWidth *2/3,
-            centerY = self.topLeftY + params.panelHeight / 8,
-            diameter = 30,
-            minValue = 0,
-            maxValue = 1,
-            sourceObj = self,
-            parameter = "feedback",
-            label="feedback "
-        )
-        pad = {'x': 83, 'y': 10}
-        super().buildDial(
-            name = f"delay{self.slot}DryWet", 
-            centerX = self.topLeftX + params.panelWidth /2 + pad['x'],
-            centerY = self.topLeftY + params.panelHeight / 8 + pad['y'],
-            diameter = 20,
-            minValue = 0,
-            maxValue = 1,
-            sourceObj = self,
-            parameter = "mix",
-            label="mix "
-        )
-
-    def process(self, signal, frames):
-        startReadIdx = (self.delayIdx - self.delaySamples) % self.delaySamples
-        endReadIdx  = startReadIdx + frames
-        startWriteIdx = self.delayIdx
-        endWriteIdx = startWriteIdx + frames
-
-        # read delay signal from past point in buffer
-        if endReadIdx <= self.delaySamples:
-            # block will fit without wrapping
-            delaySignal = self.delayBuffer[startReadIdx:endReadIdx]
-        else:
-            # will wrap; need to split into 2 parts
-            endPart = self.delayBuffer[startReadIdx:]
-            samplesFromStart = endReadIdx - self.delaySamples
-            startPart = self.delayBuffer[:samplesFromStart]
-            delaySignal = np.concatenate((endPart, startPart))
-
-        if len(delaySignal) > frames:
-            delaySignal = delaySignal[:frames] # force shape to be the same
-
-        writeSignal = signal + (delaySignal * self.feedback)
-        signal = signal + (delaySignal * self.mix)
-
-        # write delay signal to current point in buffer
-        if endWriteIdx <= self.delaySamples:
-            self.delayBuffer[startWriteIdx:endWriteIdx] = writeSignal.copy()
-        else:
-            samplesToEnd = self.delaySamples - startWriteIdx
-            self.delayBuffer[startWriteIdx:] = writeSignal[:samplesToEnd]
-            samplesFromStart = frames - samplesToEnd
-            self.delayBuffer[:samplesFromStart] = writeSignal[samplesToEnd:]
-
-        self.delayIdx = endWriteIdx % self.delaySamples
-        return signal
-    
-    def delayTimeChanged(self, updatedTime):
-        print(f'in delay time changed... {updatedTime=}')
-        self.delaySamples = int(params.samplerate * updatedTime)
-        self.delayBuffer = np.zeros(self.delaySamples)
-        self.delayIdx = 0
+#     def delayTimeChanged(self, updatedTime):
+#         print(f'in delay time changed... {updatedTime=}')
+#         self.delaySamples = int(params.samplerate * updatedTime)
+#         self.delayBuffer = np.zeros(self.delaySamples)
+#         self.delayIdx = 0
         
-class Compressor(Effect):
-    def __init__(self, slot):
-        self.ratio = 1
-        self.threshold = -4
-        self.attack = 0.5
-        super().__init__("compressor", slot)
+# class Compressor(Effect):
+#     def __init__(self, slot):
+#         self.ratio = 1
+#         self.threshold = -4
+#         self.attack = 0.5
+#         super().__init__("compressor", slot)
 
-        super().buildDial(
-            name = f"compressor{self.slot}Attack", 
-            centerX = self.topLeftX + params.panelWidth * 1/4,
-            centerY = self.topLeftY + params.panelHeight / 8,
-            diameter = 30,
-            minValue = 1e-9,
-            maxValue = 5,
-            sourceObj = self,
-            parameter = "attack",
-            label="attack "
-        )
-        super().buildDial(
-            name = f"compressor{self.slot}Threshold", 
-            centerX = self.topLeftX + params.panelWidth * 2/4,
-            centerY = self.topLeftY + params.panelHeight / 8,
-            diameter = 30,
-            minValue = -10,
-            maxValue = 0,
-            sourceObj = self,
-            parameter = "threshold",
-            label="thresh "
-        )
-        super().buildDial(
-            name = f"compressor{self.slot}Ratio", 
-            centerX = self.topLeftX + params.panelWidth * 3/4,
-            centerY = self.topLeftY + params.panelHeight / 8,
-            diameter = 30,
-            minValue = 1,
-            maxValue = 20,
-            sourceObj = self,
-            parameter = "ratio",
-            label = "ratio ",
-            ratioRamp = 2
-        )
-            
-    def process(self, signal, frames):
-        return signal
+#         super().buildDial(
+#             name = f"compressor{self.slot}Attack", 
+#             centerX = self.topLeftX + params.panelWidth * 1/4,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = 1e-9,
+#             maxValue = 5,
+#             sourceObj = self,
+#             parameter = "attack",
+#             label="attack "
+#         )
+#         super().buildDial(
+#             name = f"compressor{self.slot}Threshold", 
+#             centerX = self.topLeftX + params.panelWidth * 2/4,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = -10,
+#             maxValue = 0,
+#             sourceObj = self,
+#             parameter = "threshold",
+#             label="thresh "
+#         )
+#         super().buildDial(
+#             name = f"compressor{self.slot}Ratio", 
+#             centerX = self.topLeftX + params.panelWidth * 3/4,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = 1,
+#             maxValue = 20,
+#             sourceObj = self,
+#             parameter = "ratio",
+#             label = "ratio ",
+#             ratioRamp = 2
+#         )
+                
+#     def process(self, signal, frames):
+#         return signal
 
-class Filter(Effect):
-    def __init__(self, slot):
-        self.mix = 0.5
-        self.cutoff = 1000
-        self.prevFilteredSample = 0
-        self.type = "low-pass"
+# class Filter(Effect):
+#     def __init__(self, slot):
+#         self.mix = 0.5
+#         self.cutoff = 1000
+#         self.prevFilteredSample = 0
+#         self.type = "low-pass"
 
-        super().__init__("filter", slot)
-        super().buildDial(
-            name = f"filter{self.slot}Cutoff", 
-            centerX = self.topLeftX + params.panelWidth / 2,
-            centerY = self.topLeftY + params.panelHeight / 8,
-            diameter = 30,
-            minValue = 1e-9,
-            maxValue = 10_000,
-            sourceObj = self,
-            parameter = "cutoff",
-            label="cutoff ",
-            ratioRamp = 4
-        )
-        pad = {'x': 83, 'y': 10}
-        super().buildDial(
-            name = f"filter{self.slot}DryWet", 
-            centerX = self.topLeftX + params.panelWidth /2 + pad['x'],
-            centerY = self.topLeftY + params.panelHeight / 8 + pad['y'],
-            diameter = 20,
-            minValue = 0,
-            maxValue = 1,
-            sourceObj = self,
-            parameter = "mix",
-            label="mix "
-        )
-        options = ["low-pass", "high-pass"]
-        super().createDropdownListener(options)
-        #self.createDropdownListener()
+#         super().__init__("filter", slot)
+#         super().buildDial(
+#             name = f"filter{self.slot}Cutoff", 
+#             centerX = self.topLeftX + params.panelWidth / 2,
+#             centerY = self.topLeftY + params.panelHeight / 8,
+#             diameter = 30,
+#             minValue = 1e-9,
+#             maxValue = 10_000,
+#             sourceObj = self,
+#             parameter = "cutoff",
+#             label="cutoff ",
+#             ratioRamp = 4
+#         )
+#         super().createDryWetDial()
 
-    def process(self, signal, frames):
-        secondsPerSample = 1 / params.samplerate 
-        timeConstant = 1 / (2 * np.pi * self.cutoff)
-        smoothingFactor = secondsPerSample / (secondsPerSample + timeConstant) 
+#         options = ["low-pass", "high-pass"]
+#         super().createDropdownListener(options)
+#         #self.createDropdownListener()
 
-        filteredSignal = np.zeros(frames)
-        filteredSignal[0] = self.prevFilteredSample + smoothingFactor  * (signal[0] - self.prevFilteredSample) 
+#     def process(self, signal, frames):
+#         secondsPerSample = 1 / params.samplerate 
+#         timeConstant = 1 / (2 * np.pi * self.cutoff)
+#         smoothingFactor = secondsPerSample / (secondsPerSample + timeConstant) 
 
-        for i in range(1, len(signal)):
-            filteredSignal[i] = filteredSignal[i-1] + (signal[i]-filteredSignal[i-1])*smoothingFactor
+#         filteredSignal = np.zeros(frames)
+#         filteredSignal[0] = self.prevFilteredSample + smoothingFactor  * (signal[0] - self.prevFilteredSample) 
 
-        self.prevFilteredSample = filteredSignal[-1]
+#         for i in range(1, len(signal)):
+#             filteredSignal[i] = filteredSignal[i-1] + (signal[i]-filteredSignal[i-1])*smoothingFactor
 
-        dry = signal * (1-self.mix)
-        if self.type == "low-pass":
-            wet = filteredSignal * self.mix
+#         self.prevFilteredSample = filteredSignal[-1]
 
-        elif self.type == "high-pass":
-            wet = (signal-filteredSignal) * self.mix
-        else:
-            print('unrecognized filter type')
-            wet = signal*self.mix
+#         dry = signal * (1-self.mix)
+#         if self.type == "low-pass":
+#             wet = filteredSignal * self.mix
 
-        return dry+wet
+#         elif self.type == "high-pass":
+#             wet = (signal-filteredSignal) * self.mix
+#         else:
+#             print('unrecognized filter type')
+#             wet = signal*self.mix
+
+#         return dry+wet
 
 # NOTES PLAYED/RELEASED
 def notePlayed(globalNoteID):

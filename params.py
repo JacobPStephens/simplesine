@@ -109,16 +109,29 @@ effectRectPositions = {}
 effectXPositions = {}
 panelLineHeight = 3
 rightPad = 2
-for i in range(0,4):
+for i in range(4):
     y = (panelHeight/4*i) + 10 + panelLineHeight
     y2 = (panelHeight/4*(i+1)) + 10
-    effectRectPositions[i] = [590, y, 790, y2]
-    effectXPositions[i] = [790-xWidth, y, 790-rightPad, y+xWidth]
+    effectRectPositions[i+4] = [590, y, 790, y2]
+    effectXPositions[i+4] = [790-xWidth, y, 790-rightPad, y+xWidth]
     #panel = canvas.create_rectangle(10, y+panelLineHeight, 210, y2+panelLineHeight, fill=params.secondaryToneLight, activefill=params.primaryToneDark, tags=tagName)
 
+for i in range(0,4):
+
+    y = i * (panelHeight/4) + 10 + panelLineHeight
+    y2 = (i+1) * (panelHeight/4) + 10
+
+    effectRectPositions[i] = [10, y, 210, y2]
+    effectXPositions[i] = [210-xWidth, y, 210-rightPad, y+xWidth]
+
+
+for i in range(4,8):
+    pass
+
+
 # make bottom panel a bit shorter
-effectRectPositions[3][3] -= panelLineHeight
-effectXPositions[3][3] -= 1
+effectRectPositions[7][3] -= panelLineHeight
+effectXPositions[7][3] -= 1
 
 
 
