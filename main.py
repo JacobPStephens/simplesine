@@ -121,6 +121,7 @@ def main():
 def audioCallback(outdata, frames, time_info, status):
     global drawingSignal
     #global delayBuffer, delayIdx
+
     if status: 
         print(f'{status=}')
     
@@ -151,35 +152,29 @@ def audioCallback(outdata, frames, time_info, status):
     signal *= params.smoothedGain * sliderValues['volume']['curr'] * params.masterDamp
     peak = np.max(np.abs(signal))
 
-    
+    # def compressor():
+    #     peak = np.max(np.abs(signal)) + 1e-10
+    #     if peak > threshold:
+
+            
+        # for sample in signal:
+        #     if sample > threshold:
+        #         sample = sample / ratio
+
+
     
     if peak > 1:
         print(f"clip {peak}")
-
-    
-    #signal = softClip(signal, 1.5)
-    #distortedSignal = hardClip(signal, 0.2)
-
 
     for effect in effectObjs:
         if effect:
             signal = effect.process(signal, frames)
     
-
-    
-    # assuming we never go out of index
-    # asumping delayIndex - delaySamples is never negative. Must handle separately
-
-    #delaySamplesRemaining = delaySamples - delayIndex
-    
-    
-
-    #distortedSignal = halfWave(signal)
-    #signal = (1.0*signal) + (0*distortedSignal)
     drawingSignal = signal.copy()
     if peak > 1:
         drawingSignal *= (1/peak * params.visualShrink)
     outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
+
 def draw():
 
     ceiling = 50
@@ -234,11 +229,11 @@ def removePopup():
 
 
 
-def onSelectEffect(event, effectName: str, slot: int):
+def onSelectEffect(event, effectName: str, slot: int, sourceObj):
     effectNameToClass = {
         "distortion": Distortion,
         "delay": Delay,
-        "reverb": Reverb,
+        "compressor": Compressor,
         "filter": Filter
 
     }
@@ -248,7 +243,7 @@ def onSelectEffect(event, effectName: str, slot: int):
     EffectClass = effectNameToClass[effectName]
     effectObjs[slot] = EffectClass(slot)
 
-    removePopup()
+    sourceObj.removeDropdown()
 
 def colorChange(event, piece, color):
     canvas.itemconfig(piece, fill=color)
@@ -257,130 +252,148 @@ def colorChange(event, piece, color):
 #     canvas.itemconfig(piece, fill=params.primaryToneDark)
 
 
-def createPopup(x, y, panelType, slot, sourceObj=None):
-    removePopup()
-    # prevent pop-up from going off-screen
+class Dropdown:
+    global canvas
+    def __init__(self, x: int, y: int, options: list[str], slot: int, panelType: str, callback: callable):
+        self.options = options
+        self.objects = []
+        self.createDropdown(x, y, slot, panelType, callback)
 
-    if panelType == "effect":
-        x = max(min(x, 750), 630)
-    elif panelType == "mod":
-        x = max(min(x, 170), 50)
+    def createDropdown(self, x, y, slot, panelType, callback):
 
-    elif panelType == "distortion":
-        pass
-    #x = max(x, 20)
-    popupWidth = 80
-    popupHeight = 90
-    effectTexts = ["distortion", "reverb", "delay", "filter"] 
-    modTexts = ["oscillator", "envelope"]
-    distortionTexts = ["soft clip", "hard clip", "half wave"]
-    waveTexts = ["sine", "square", "saw"]
-    pieceHeight = popupHeight / len(effectTexts)
-    #popup = canvas.create_rectangle(x-(popupWidth/2), y, x+(popupWidth/2), y+(popupHeight/2), fill="green")
+        popupWidth = 80
+        topPadding = 12
+        elementHeight = 25
 
-    delta_y = 25
-    i = 0
-    padFromTop = 12
+        for i, option in enumerate(self.options):
+            #piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
+            piece = canvas.create_rectangle(x-popupWidth/2, y+elementHeight*i, x+popupWidth/2, y+elementHeight*(i+1), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
+            textObj = canvas.create_text(x, y+elementHeight*i+topPadding,text=option, font=("Terminal", 9), fill="white")
+            #textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=effectText, font=("Terminal", 9), fill="white")
+            canvas.tag_bind(piece, "<Button-1>", lambda event, optionName=option, slotArg=slot: callback(event, optionName, slotArg, self))
+            canvas.tag_bind(textObj, "<Button-1>", lambda event, optionName=option, slotArg=slot: callback(event, optionName, slotArg, self))
 
-    if panelType == "effect":
-        for effectText in effectTexts:
-            piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
-            textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=effectText, font=("Terminal", 9), fill="white")
-            
-
-            canvas.tag_bind(piece, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
-            canvas.tag_bind(textObj, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
             canvas.tag_bind(textObj, "<Enter>", lambda event, obj=piece, color=params.primaryToneLight: colorChange(event, obj, color))
             canvas.tag_bind(textObj, "<Leave>", lambda event, obj=piece, color=params.primaryToneDark: colorChange(event, obj, color))
 
-            popupObjects.append(piece)
-            popupObjects.append(textObj)
-            i += 1
+            self.objects.append(piece)
+            self.objects.append(textObj)        
 
-
-
-    elif panelType == "mod":
-        for waveText in modTexts:
-            piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
-            textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=waveText, font=("Terminal", 9), fill="white")
-            
-            canvas.tag_bind(piece, "<Button-1>", lambda event, modName=waveText, slotArg=slot, ownerObj=sourceObj: onPopupModTextClick(event, modName, slotArg))
-            canvas.tag_bind(textObj, "<Button-1>", lambda event, modName=waveText, slotArg=slot, ownerObj=sourceObj: onPopupModTextClick(event, modName, slotArg))
-            canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece: hoverColorChange(event, pieceObj))
-            canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece: onLeaveColorChange(event, pieceObj))
-
-            popupObjects.append(piece)
-            popupObjects.append(textObj)
-            i += 1
-
-
-    elif panelType == "distortion":
-        assert sourceObj
-        for distortionText in distortionTexts:
-            piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black") 
-            textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=distortionText, font=("Terminal", 9), fill="white")
-
-            canvas.tag_bind(piece, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
-            canvas.tag_bind(textObj, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
-            canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece, color=params.primaryToneLight: colorChange(event, pieceObj, color))
-            canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece, color=params.primaryToneDark: colorChange(event, pieceObj, color))
-
-            popupObjects.append(piece)
-            popupObjects.append(textObj)
-
-            i += 1
-    # elif panelType == "title":
-    #     global displayVisual
-    #     popupWidth = 160
-    #     popupHeight = 200
-    #     delta_y = 50
-    #     padFromTop = 20
-    #     pieceHeight = popupHeight / len(waveTexts)
-    #     for waveText in waveTexts:
-    #         piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
-    #         textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=waveText, font=("Terminal", 30, 'bold',), fill="white")
-    #         canvas.lift(piece)
-    #         canvas.lift(textObj)
-
-    #         canvas.tag_bind(piece, "<Button-1>", lambda event, waveName=waveText, slotArg=slot: onPopupModTextClick(event, waveName, slotArg))
-    #         canvas.tag_bind(textObj, "<Button-1>", lambda event, modName=waveText, slotArg=slot: onPopupModTextClick(event, modName, slotArg))
-    #         canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece: onPopupTextEnter(event, pieceObj))
-    #         canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece: onPopupTextLeave(event, pieceObj))
-            
-
-    #         popupObjects.append(piece)
-    #         popupObjects.append(textObj)
-    #         displayVisual = False
-    #         i += 1
-
-def onPopupClick():
+    def removeDropdown(self):
+        for obj in self.objects:
+            canvas.delete(obj)
+        self.objects = []
+        print('delted popup line 286s')
     
-    pass
+# def createPopup(x, y, panelType, slot, sourceObj=None):
+#     removePopup()
+#     # prevent pop-up from going off-screen
 
-def createEffect():
-    pass
-def createModulation():
-    pass
+#     if panelType == "effect":
+#         x = max(min(x, 750), 630)
+#     elif panelType == "mod":
+#         x = max(min(x, 170), 50)
 
-def onDestroyPanel():
-    # update effects or mod dict
-    # remove element from canvas
-    pass
+#     elif panelType == "distortion":
+#         pass
+#     #x = max(x, 20)
+#     popupWidth = 80
+#     popupHeight = 90
+#     effectTexts = ["distortion", "compressor", "delay", "filter"] 
+#     modTexts = ["oscillator", "envelope"]
+#     distortionTexts = ["soft clip", "hard clip", "half wave"]
+#     filterTexts = ["low-pass", "high-pass"]
+#     waveTexts = ["sine", "square", "saw"]
+#     pieceHeight = popupHeight / len(effectTexts)
+#     #popup = canvas.create_rectangle(x-(popupWidth/2), y, x+(popupWidth/2), y+(popupHeight/2), fill="green")
 
-def onPanelClick(event, panelTag):#, panelName):
+#     delta_y = 25
+#     i = 0
+#     padFromTop = 12
+
+#     if panelType == "effect":
+#         for effectText in effectTexts:
+#             piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
+#             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=effectText, font=("Terminal", 9), fill="white")
+            
+
+#             canvas.tag_bind(piece, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
+#             canvas.tag_bind(textObj, "<Button-1>", lambda event, effectName=effectText, slotArg=slot: onSelectEffect(event, effectName, slotArg))
+#             canvas.tag_bind(textObj, "<Enter>", lambda event, obj=piece, color=params.primaryToneLight: colorChange(event, obj, color))
+#             canvas.tag_bind(textObj, "<Leave>", lambda event, obj=piece, color=params.primaryToneDark: colorChange(event, obj, color))
+
+#             popupObjects.append(piece)
+#             popupObjects.append(textObj)
+#             i += 1
+
+
+
+#     # elif panelType == "mod":
+#     #     for waveText in modTexts:
+#     #         piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
+#     #         textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=waveText, font=("Terminal", 9), fill="white")
+            
+#     #         canvas.tag_bind(piece, "<Button-1>", lambda event, modName=waveText, slotArg=slot, ownerObj=sourceObj: onPopupModTextClick(event, modName, slotArg))
+#     #         canvas.tag_bind(textObj, "<Button-1>", lambda event, modName=waveText, slotArg=slot, ownerObj=sourceObj: onPopupModTextClick(event, modName, slotArg))
+#     #         canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece: hoverColorChange(event, pieceObj))
+#     #         canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece: onLeaveColorChange(event, pieceObj))
+
+#     #         popupObjects.append(piece)
+#     #         popupObjects.append(textObj)
+#     #         i += 1
+
+
+#     elif panelType == "distortion":
+#         assert sourceObj
+#         for distortionText in distortionTexts:
+#             piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black") 
+#             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=distortionText, font=("Terminal", 9), fill="white")
+
+#             canvas.tag_bind(piece, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
+#             canvas.tag_bind(textObj, "<Button-1>", lambda event, distortionType=distortionText: sourceObj.onSelectDistortionType(event, distortionType))
+#             canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece, color=params.primaryToneLight: colorChange(event, pieceObj, color))
+#             canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece, color=params.primaryToneDark: colorChange(event, pieceObj, color))
+
+#             popupObjects.append(piece)
+#             popupObjects.append(textObj)
+
+#             i += 1
+#     elif panelType == "filter":
+
+#         for filterText in filterTexts:
+#             piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black") 
+#             textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=filterText, font=("Terminal", 9), fill="white")
+            
+#             canvas.tag_bind(piece, "<Button-1>", lambda event, filterType=filterText: sourceObj.onSelectFilterType(event, filterType))
+#             canvas.tag_bind(textObj, "<Button-1>", lambda event, filterType=filterText: sourceObj.onSelectFilterType(event, filterType))
+#             canvas.tag_bind(textObj, "<Enter>", lambda event, pieceObj=piece, color=params.primaryToneLight: colorChange(event, pieceObj, color))
+#             canvas.tag_bind(textObj, "<Leave>", lambda event, pieceObj=piece, color=params.primaryToneDark: colorChange(event, pieceObj, color))
+
+#             popupObjects.append(piece)
+#             popupObjects.append(textObj)
+
+#             i += 1
+  
+
+def onPanelClick(event, panelTag):
     x, y = event.x, event.y
     slot = int(panelTag[-1])
 
     # Modulations
     if "mod" in panelTag:
         panelType = "mod"
+        options = ["oscillator", "envelope"]
+        callback = None # CHANGE TO ON SELECT MOD
 
     # Effects
     elif "effect" in panelTag:
         panelType = "effect"
+        options = ["distortion", "compressor", "delay", "filter"] 
+        callback = onSelectEffect
 
+    Dropdown(x, y, options, slot, panelType, callback)
 
-    createPopup(x, y, panelType, slot)
+    #createPopup(x, y, panelType, slot)
 
 
 def onWaveformTitleClick(event, titleObj):
@@ -497,13 +510,7 @@ def buildGUI():
         numRemoved += 1
 
     canvas.pack()
-
-
-# class ADSRDial(Dial):
-
-
-
-    
+   
 class Dial:
     def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj=None, parameter=None):
         self.centerX = centerX
@@ -519,7 +526,6 @@ class Dial:
         self.sourceObj = sourceObj
         self.parameter = parameter
         self.createDial()
-
 
     def createDial(self):
         if self.isADSR:
@@ -574,7 +580,6 @@ class Dial:
             currVal = getattr(self.sourceObj,self.parameter)
         return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/self.ratioRamp)
         # return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/self.ratioRamp)
-
 
 class Slider:
     def __init__(self, name):
@@ -645,7 +650,6 @@ class Slider:
         self.left  + (slider_x/self.right)
         # based on knob position, change global variables
         pass
-
 
 class UserInput():
     def __init__(self, widgets):
@@ -803,7 +807,8 @@ class Note:
         return signal
 
 class Effect:
-    def __init__(self, slot: int):
+    def __init__(self, effectType: str, slot: int):
+        self.effectType = effectType
         self.slot = slot
         self.rectCorners = params.effectRectPositions[slot]
         self.XCorners = params.effectXPositions[slot]
@@ -814,7 +819,15 @@ class Effect:
 
         self.buildRectangle()
         self.buildX()
-        
+        self.drawTitle()
+
+    
+    def buildDial(self, name, centerX, centerY, diameter, minValue, maxValue, sourceObj, parameter, label="", units="", isADSR=False):
+        self.addDialToValues(name, minValue, maxValue, centerX, centerY)
+        dial = Dial(centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj, parameter)
+        widgets[name] = dial
+        sourceObj.widgetObjects.append(dial)
+
     def buildRectangle(self):
         panelObj = canvas.create_rectangle(self.rectCorners, fill=params.primaryToneDark)
         self.canvasObjects.append(panelObj)
@@ -832,9 +845,9 @@ class Effect:
         canvas.tag_bind(x_bgObj, "<Button-1>", self.destroy)
         canvas.tag_bind(x_txtObj, "<Button-1>", self.destroy)
 
-    def drawTitle(self, effectType):
+    def drawTitle(self):
         topPad = 10
-        titleTxt = canvas.create_text(self.topLeftX+(params.panelWidth/2), self.topLeftY+topPad, text=effectType, font=("Terminal", 12, 'bold'), fill=params.primaryToneLight)
+        titleTxt = canvas.create_text(self.topLeftX+(params.panelWidth/2), self.topLeftY+topPad, text=self.effectType, font=("Terminal", 12, 'bold'), fill=params.primaryToneLight)
         self.canvasObjects.append(titleTxt)
 
     def destroy(self, event):
@@ -844,22 +857,52 @@ class Effect:
             widgetItem.destroy()
         effectObjs[self.slot] = None
 
-        removePopup()
+        if self.dropdown:
+            self.dropdown.removeDropdown()
+
+        #removePopup()
         # canvas.tag_bind(txtObj, "<Enter>", lambda event, obj=txtObj: onPopupTextEnter(event, obj))
         # canvas.tag_bind(txtObj, "<Leave>", lambda event, obj=txtObj: onPopupTextLeave(event, obj))
-
+    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
+        dialValues[key] = {
+            'curr': 0,
+            'min': minValue,
+            'max': maxValue,
+            'centerX': centerX,
+            'centerY': centerY,
+        }
+    
 class Distortion(Effect):
     def __init__(self, slot):
         self.type = None
         self.overdrive = 0
         self.mix = 0.5
-        super().__init__(slot)
-        super().drawTitle("distortion")
-        self.createOverdriveDial()
-        self.createDryWetDial()
-        self.createDistortionTypeDropdown()
- 
+        super().__init__(effectType="distortion", slot=slot)
+        super().buildDial(
+            name = f"distortion{self.slot}Overdrive", 
+            centerX = self.topLeftX + params.panelWidth / 2,
+            centerY = self.topLeftY + params.panelHeight / 8,
+            diameter = 30,
+            minValue = 0,
+            maxValue = 2,
+            sourceObj = self,
+            parameter = "overdrive",
+            label="drive "
+        )
+        dryWetPad = {'x': 83, 'y': 10}
+        super().buildDial(
+            name = f"distortion{self.slot}DryWet", 
+            centerX = self.topLeftX + params.panelWidth / 2 + dryWetPad['x'],
+            centerY = self.topLeftY + params.panelHeight / 8  + dryWetPad['y'],
+            diameter = 20,
+            minValue = 0,
+            maxValue = 1,
+            sourceObj = self,
+            parameter = "mix"
+        )
 
+        self.createDropdownListener()
+ 
     def process(self, signal, frames):
         signal = signal * (1 + self.overdrive * self.mix)
         dry = signal * (1-self.mix)
@@ -874,77 +917,28 @@ class Distortion(Effect):
             wet = np.maximum(0, signal) * self.mix
         return (dry + wet) 
 
-        
-    def createOverdriveDial(self):
-        print(f'{self.topLeftX=}')
-        print(f'{self.topLeftY=}')
-        dialCenterX = (self.topLeftX + (params.panelWidth / 2))
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        print(f'{dialCenterX=}')
-        print(f'{dialCenterY=}')
-        dialDiameter = 30
-        minOverdriveValue = 0
-        maxOverdriveValue = 2
 
-        dialName = f"distortion{self.slot}Overdrive"
-        self.addDialToValues(dialName, minOverdriveValue, maxOverdriveValue, dialCenterX, dialCenterY)
-
-        #print(f"again {dialCenterY=}")
-        #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
-
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minOverdriveValue, maxOverdriveValue, dialName, label="drive ", units="", isADSR=False, sourceObj=self, parameter="overdrive")
-
-        widgets[dialName] = dial
-        print(f'start extent= {self.mix*360}')
-        self.widgetObjects.append(dial)
-
-    def createDryWetDial(self):
-        xPad = 83
-        yPad = 10
-        dialCenterX = (self.topLeftX + (params.panelWidth / 2) + xPad)
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2 + yPad)
-        dialDiameter = 20
-        dialName = f"distortion{self.slot}DryWet"
-        minDryWet = 0
-        maxDryWet = 1
-        self.addDialToValues(dialName, minDryWet, maxDryWet, dialCenterX, dialCenterY)
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
-
-        widgets[dialName] = dial
-        self.widgetObjects.append(dial)
-
-
-    def createDistortionTypeDropdown(self):
+    def createDropdownListener(self):
         xPad = 10
         yPad = 30
+        distortionOptions = ["soft clip", "hard clip", "half wave"]
         typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
-        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
-        canvas.tag_bind(typeText, "<Button-1>", lambda event: createPopup(event.x, event.y, "distortion", self.slot, sourceObj=self))
+        #canvas.tag_bind(typeText, "<Button-1>", lambda event, options=distortionOptions: self.dropdownCallback(event))
+        canvas.tag_bind(typeText, "<Button-1>", lambda event, options=distortionOptions: self.initDropdown(event, options))
 
+        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
         self.canvasObjects.append(typeText)
         self.canvasObjects.append(self.currentTypeText)      
 
-    def onSelectDistortionType(self, event, selectedType):
-        removePopup()
-        self.type = selectedType
+    def initDropdown(self, event, options):
+        # create dropdown and remember it in case of removal through "X" button
+        self.dropdown = Dropdown(event.x, event.y, options, self.slot, "effect", self.onSelectDistortionType)
+
+    def onSelectDistortionType(self,event, selectedOption, slot, sourceObj):
+        self.type = selectedOption
         canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
-        print(f"Distortion type is {self.type} in {self.slot}")
+        sourceObj.removeDropdown()
 
-        print(f'{self.overdrive=}')
-        print(f'{self.mix=}')
-
-
-    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
-        dialValues[key] = {
-            'curr': 0,
-            'min': minValue,
-            'max': maxValue,
-            'centerX': centerX,
-            'centerY': centerY
-        }
-
-    
-        
 class Delay(Effect):
     def __init__(self, slot):
         self.time = 0.5
@@ -1004,18 +998,14 @@ class Delay(Effect):
         self.delayIdx = 0
 
     def createTimeDial(self):
-        print(f'{self.topLeftX=}')
-        print(f'{self.topLeftY=}')
         dialCenterX = (self.topLeftX + (params.panelWidth /3))
         dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        print(f'{dialCenterX=}')
-        print(f'{dialCenterY=}')
         dialDiameter = 30
         minDelayTime = 0
         maxDelayTime = 2
 
         dialName = f"delay{self.slot}Time"
-        self.addDialToValues(dialName, minDelayTime, maxDelayTime, dialCenterX, dialCenterY)
+        super().addDialToValues(dialName, minDelayTime, maxDelayTime, dialCenterX, dialCenterY)
 
         #print(f"again {dialCenterY=}")
         #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
@@ -1039,7 +1029,7 @@ class Delay(Effect):
         maxFeedbackValue = 1
 
         dialName = f"delay{self.slot}Feedback"
-        self.addDialToValues(dialName, minFeedbackValue, maxFeedbackValue, dialCenterX, dialCenterY)
+        super().addDialToValues(dialName, minFeedbackValue, maxFeedbackValue, dialCenterX, dialCenterY)
 
         #print(f"again {dialCenterY=}")
         #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
@@ -1064,6 +1054,61 @@ class Delay(Effect):
         dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
         widgets[dialName] = dial
         self.widgetObjects.append(dial)
+        
+class Compressor(Effect):
+    def __init__(self, slot):
+        self.ratio = 1
+        self.threshold = -4
+        self.attack = 0.5
+        super().__init__(slot)
+        super().drawTitle("compressor")
+        self.createRatioDial()
+        self.createThresholdDial()
+        self.createAttackDial()
+            
+    def process(self, signal, frames):
+        return signal
+    
+    def createAttackDial(self):
+        dialCenterX = (self.topLeftX + (params.panelWidth *1/4))
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
+        dialDiameter = 30
+        minAttackValue = 1e-9 
+        maxAttackValue = 5
+        dialName = f"compressor{self.slot}Attack"
+        self.addDialToValues(dialName, minAttackValue, maxAttackValue, dialCenterX, dialCenterY)
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minAttackValue, maxAttackValue, dialName, label="attack ", units="", isADSR=False, sourceObj=self, parameter="attack")
+        dial.ratioRamp = 1
+        widgets[dialName] = dial
+        self.widgetObjects.append(dial)
+
+    def createThresholdDial(self):
+        dialCenterX = (self.topLeftX + (params.panelWidth *2/4))
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
+        dialDiameter = 30
+        minThresholdValue = -10
+        maxThresholdValue = 0
+        dialName = f"compressor{self.slot}Threshold"
+        super().addDialToValues(dialName, minThresholdValue, maxThresholdValue, dialCenterX, dialCenterY)
+
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minThresholdValue, maxThresholdValue, dialName, label="thresh ", units="", isADSR=False, sourceObj=self, parameter="threshold")
+        dial.ratioRamp = 1
+        widgets[dialName] = dial
+        self.widgetObjects.append(dial)
+
+    def createRatioDial(self):
+        dialCenterX = (self.topLeftX + (params.panelWidth *3/4))
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
+        dialDiameter = 30
+        minRatioValue = 1 
+        maxRatioValue = 20
+
+        dialName = f"compressor{self.slot}Ratio"
+        self.addDialToValues(dialName, minRatioValue, maxRatioValue, dialCenterX, dialCenterY)
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minRatioValue, maxRatioValue, dialName, label="ratio ", units="", isADSR=False, sourceObj=self, parameter="ratio")
+        dial.ratioRamp = 2
+        widgets[dialName] = dial
+        self.widgetObjects.append(dial)
 
     def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
         dialValues[key] = {
@@ -1073,20 +1118,124 @@ class Delay(Effect):
             'centerX': centerX,
             'centerY': centerY
         }
-class Reverb(Effect):
-    def __init__(self, slot):
-        super().__init__(slot)
-        super().drawTitle("reverb")
-            
+
+
 class Filter(Effect):
     def __init__(self, slot):
+        self.mix = 0.5
+        self.cutoff = 1000
+        self.prevFilteredSample = 0
+        self.type = "low-pass"
+
         super().__init__(slot)
         super().drawTitle("filter")
-#     def buildRectangle():
+        self.createDryWetDial()
+        self.createCutoffDial()
+        self.createFilterTypeDropdown()
+
+    def process(self, signal, frames):
+        secondsPerSample = 1 / params.samplerate 
+        timeConstant = 1 / (2 * np.pi * self.cutoff)
+        smoothingFactor = secondsPerSample / (secondsPerSample + timeConstant) 
+
+        filteredSignal = np.zeros(frames)
+        filteredSignal[0] = self.prevFilteredSample + smoothingFactor  * (signal[0] - self.prevFilteredSample) 
+
+        for i in range(1, len(signal)):
+            filteredSignal[i] = filteredSignal[i-1] + (signal[i]-filteredSignal[i-1])*smoothingFactor
+
+        self.prevFilteredSample = filteredSignal[-1]
+
+        dry = signal * (1-self.mix)
+        if self.type == "low-pass":
+            wet = filteredSignal * self.mix
+
+        elif self.type == "high-pass":
+            wet = (signal-filteredSignal) * self.mix
+        else:
+            print('unrecognized filter type')
+            wet = signal*self.mix
+
+        return dry+wet
+
+    def createFilterTypeDropdown(self):
+        xPad = 10
+        yPad = 30
+        typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
+        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
+        canvas.tag_bind(typeText, "<Button-1>", lambda event: createPopup(event.x, event.y, "filter", self.slot, sourceObj=self))
+
+        self.canvasObjects.append(typeText)
+        self.canvasObjects.append(self.currentTypeText)      
+
+    def onSelectFilterType(self, event, selectedType):
+        removePopup()
+        self.type = selectedType
+        canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
+        print(f"Filter type is {self.type} in {self.slot}")
+
+
+    def createCutoffDial(self):
+        dialCenterX = (self.topLeftX + (params.panelWidth *1/2))
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
+        dialDiameter = 30
+        minCutoffValue = 0.01
+        maxCutoffValue = 20_000
+
+        dialName = f"filter{self.slot}Cutoff"
+        self.addDialToValues(dialName, minCutoffValue, maxCutoffValue, dialCenterX, dialCenterY)
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minCutoffValue, maxCutoffValue, dialName, label="cutoff ", units="", isADSR=False, sourceObj=self, parameter="cutoff")
+        dial.ratioRamp = 4
+        widgets[dialName] = dial
+        self.widgetObjects.append(dial)
+        # dialDiameter = 30
+        # minFeedbackValue = 0
+        # maxFeedbackValue = 1
+
+        # dialName = f"delay{self.slot}Feedback"
+        # self.addDialToValues(dialName, minFeedbackValue, maxFeedbackValue, dialCenterX, dialCenterY)
+
+        # #print(f"again {dialCenterY=}")
+        # #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
+
+        # dial = Dial(dialCenterX, dialCenterY, dialDiameter, minFeedbackValue, maxFeedbackValue, dialName, label="feedback ", units="", isADSR=False, sourceObj=self, parameter="feedback")
+
+        # widgets[dialName] = dial
+        # print(f'start extent= {self.mix*360}')
+        # self.widgetObjects.append(dial)
 
 
 
 
+
+
+
+
+
+    def createDryWetDial(self):
+        print(f'{self.topLeftX=}{self.topLeftY=}')
+        xPad = 83
+        yPad = 10
+        dialCenterX = (self.topLeftX + (params.panelWidth / 2) + xPad)
+        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2 + yPad)
+        dialDiameter = 20
+        dialName = f"filter{self.slot}DryWet"
+        minDryWet = 0
+        maxDryWet = 1
+        self.addDialToValues(dialName, minDryWet, maxDryWet, dialCenterX, dialCenterY)
+        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
+        widgets[dialName] = dial
+        self.widgetObjects.append(dial)
+
+    # probaly but this function into parent
+    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
+        dialValues[key] = {
+            'curr': 0,
+            'min': minValue,
+            'max': maxValue,
+            'centerX': centerX,
+            'centerY': centerY
+        }
 
 # NOTES PLAYED/RELEASED
 def notePlayed(globalNoteID):

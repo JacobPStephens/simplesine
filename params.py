@@ -15,8 +15,8 @@ peakVolume = utils.decibelsToAmplitude(0)
 maxVolume = utils.decibelsToAmplitude(0)
 minVolume = 1e-9
 masterDamp = 0.3
-squareAudioDamp = 0.2
-sawAudioDamp = 0.2
+squareAudioDamp = 0.3
+sawAudioDamp = 0.3
 
 # visual
 waveVisualIncrease = {
