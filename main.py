@@ -92,7 +92,7 @@ def main():
             units = ""
         else:
             units = "s"
-        widgets[name] = Dial(dialType['centerX'], dialType['centerY'], params.dialWidth, dialType['min'], dialType['max'], name, label="", units=units, isADSR=True)
+        widgets[name] = Dial(dialType['centerX'], dialType['centerY'], params.dialWidth, dialType['min'], dialType['max'], name, label="", units=units, isADSR=True, ratioRamp=2)
 
         #widgets[name] = Dial(name)
 
@@ -405,16 +405,11 @@ def onWaveformTitleClick(event, titleObj):
     newIdx = (waveIdx + 1) % len(waves)
     newWave = waves[newIdx]
 
-    
-
-
     diffCharacters = len(newWave) - len(waveType)
     distancePerChar = 12
 
     canvas.move(titleObj, distancePerChar * diffCharacters, 0)
     canvas.itemconfig(titleObj, text=newWave, justify="left")
-
-    createPopup(event.x, event.y, "title", None)
 
     waveType = newWave
 
@@ -512,7 +507,7 @@ def buildGUI():
     canvas.pack()
    
 class Dial:
-    def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj=None, parameter=None):
+    def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj=None, parameter=None, ratioRamp=1):
         self.centerX = centerX
         self.centerY = centerY
         self.diameter = diameter
@@ -522,7 +517,7 @@ class Dial:
         self.label = label
         self.units = units
         self.isADSR = isADSR
-        self.ratioRamp = 2 if self.isADSR else 1
+        self.ratioRamp = ratioRamp
         self.sourceObj = sourceObj
         self.parameter = parameter
         self.createDial()
@@ -811,6 +806,7 @@ class Effect:
         self.effectType = effectType
         self.slot = slot
         self.rectCorners = params.effectRectPositions[slot]
+        self.dropdown = None
         self.XCorners = params.effectXPositions[slot]
         self.canvasObjects = []
         self.widgetObjects = []
@@ -821,10 +817,29 @@ class Effect:
         self.buildX()
         self.drawTitle()
 
+    def createDropdownListener(self, options):
+        print('in super create drop down listener')
+        xPad = 10
+        yPad = 30
+        typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
+        canvas.tag_bind(typeText, "<Button-1>", lambda event, options=options: self.initDropdown(event, options))
+
+        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
+        self.canvasObjects.append(typeText)
+        self.canvasObjects.append(self.currentTypeText)    
     
-    def buildDial(self, name, centerX, centerY, diameter, minValue, maxValue, sourceObj, parameter, label="", units="", isADSR=False):
+    def initDropdown(self, event, options):
+        # create dropdown and remember it in case of removal through "X" button
+        self.dropdown = Dropdown(event.x, event.y, options, self.slot, "effect", self.onSelectDistortionType)
+
+    def onSelectDistortionType(self,event, selectedOption, slot, sourceObj):
+        self.type = selectedOption
+        canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
+        sourceObj.removeDropdown()
+
+    def buildDial(self, name, centerX, centerY, diameter, minValue, maxValue, sourceObj, parameter, label="", units="", isADSR=False, ratioRamp=1):
         self.addDialToValues(name, minValue, maxValue, centerX, centerY)
-        dial = Dial(centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj, parameter)
+        dial = Dial(centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj, parameter, ratioRamp)
         widgets[name] = dial
         sourceObj.widgetObjects.append(dial)
 
@@ -900,9 +915,9 @@ class Distortion(Effect):
             sourceObj = self,
             parameter = "mix"
         )
+        options = ["soft clip", "hard clip", "half wave"]
+        super().createDropdownListener(options)
 
-        self.createDropdownListener()
- 
     def process(self, signal, frames):
         signal = signal * (1 + self.overdrive * self.mix)
         dry = signal * (1-self.mix)
@@ -917,28 +932,6 @@ class Distortion(Effect):
             wet = np.maximum(0, signal) * self.mix
         return (dry + wet) 
 
-
-    def createDropdownListener(self):
-        xPad = 10
-        yPad = 30
-        distortionOptions = ["soft clip", "hard clip", "half wave"]
-        typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
-        #canvas.tag_bind(typeText, "<Button-1>", lambda event, options=distortionOptions: self.dropdownCallback(event))
-        canvas.tag_bind(typeText, "<Button-1>", lambda event, options=distortionOptions: self.initDropdown(event, options))
-
-        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
-        self.canvasObjects.append(typeText)
-        self.canvasObjects.append(self.currentTypeText)      
-
-    def initDropdown(self, event, options):
-        # create dropdown and remember it in case of removal through "X" button
-        self.dropdown = Dropdown(event.x, event.y, options, self.slot, "effect", self.onSelectDistortionType)
-
-    def onSelectDistortionType(self,event, selectedOption, slot, sourceObj):
-        self.type = selectedOption
-        canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
-        sourceObj.removeDropdown()
-
 class Delay(Effect):
     def __init__(self, slot):
         self.time = 0.5
@@ -948,15 +941,44 @@ class Delay(Effect):
         self.delaySamples = int(params.samplerate * self.time)
         self.delayBuffer = np.zeros(self.delaySamples)
         self.delayIdx = 0
-        super().__init__(slot)
-        super().drawTitle("delay")
-        self.createTimeDial()
-        self.createFeedbackDial()
-        self.createDryWetDial()
-    #def process(self, signal)
+        super().__init__("delay", slot)
+
+        super().buildDial(
+            name = f"delay{self.slot}Time", 
+            centerX = self.topLeftX + params.panelWidth / 3,
+            centerY = self.topLeftY + params.panelHeight / 8,
+            diameter = 30,
+            minValue = 0,
+            maxValue = 2,
+            sourceObj = self,
+            parameter = "time",
+            label="time "
+        )
+        super().buildDial(
+            name = f"delay{self.slot}Feedback", 
+            centerX = self.topLeftX + params.panelWidth *2/3,
+            centerY = self.topLeftY + params.panelHeight / 8,
+            diameter = 30,
+            minValue = 0,
+            maxValue = 1,
+            sourceObj = self,
+            parameter = "feedback",
+            label="feedback "
+        )
+        pad = {'x': 83, 'y': 10}
+        super().buildDial(
+            name = f"delay{self.slot}DryWet", 
+            centerX = self.topLeftX + params.panelWidth /2 + pad['x'],
+            centerY = self.topLeftY + params.panelHeight / 8 + pad['y'],
+            diameter = 20,
+            minValue = 0,
+            maxValue = 1,
+            sourceObj = self,
+            parameter = "mix",
+            label="mix "
+        )
 
     def process(self, signal, frames):
-
         startReadIdx = (self.delayIdx - self.delaySamples) % self.delaySamples
         endReadIdx  = startReadIdx + frames
         startWriteIdx = self.delayIdx
@@ -996,129 +1018,51 @@ class Delay(Effect):
         self.delaySamples = int(params.samplerate * updatedTime)
         self.delayBuffer = np.zeros(self.delaySamples)
         self.delayIdx = 0
-
-    def createTimeDial(self):
-        dialCenterX = (self.topLeftX + (params.panelWidth /3))
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        dialDiameter = 30
-        minDelayTime = 0
-        maxDelayTime = 2
-
-        dialName = f"delay{self.slot}Time"
-        super().addDialToValues(dialName, minDelayTime, maxDelayTime, dialCenterX, dialCenterY)
-
-        #print(f"again {dialCenterY=}")
-        #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
-
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDelayTime, maxDelayTime, dialName, label="time ", units="s", isADSR=False, sourceObj=self, parameter="time")
-
-        widgets[dialName] = dial
-        print(f'start extent= {self.mix*360}')
-
-        self.widgetObjects.append(dial)
-
-    def createFeedbackDial(self):
-        print(f'{self.topLeftX=}')
-        print(f'{self.topLeftY=}')
-        dialCenterX = (self.topLeftX + (params.panelWidth *2/3))
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        print(f'{dialCenterX=}')
-        print(f'{dialCenterY=}')
-        dialDiameter = 30
-        minFeedbackValue = 0
-        maxFeedbackValue = 1
-
-        dialName = f"delay{self.slot}Feedback"
-        super().addDialToValues(dialName, minFeedbackValue, maxFeedbackValue, dialCenterX, dialCenterY)
-
-        #print(f"again {dialCenterY=}")
-        #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
-
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minFeedbackValue, maxFeedbackValue, dialName, label="feedback ", units="", isADSR=False, sourceObj=self, parameter="feedback")
-
-        widgets[dialName] = dial
-        print(f'start extent= {self.mix*360}')
-        self.widgetObjects.append(dial)
-
-    def createDryWetDial(self):
-        print(f'{self.topLeftX=}{self.topLeftY=}')
-        xPad = 83
-        yPad = 10
-        dialCenterX = (self.topLeftX + (params.panelWidth / 2) + xPad)
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2 + yPad)
-        dialDiameter = 20
-        dialName = f"delay{self.slot}DryWet"
-        minDryWet = 0
-        maxDryWet = 1
-        self.addDialToValues(dialName, minDryWet, maxDryWet, dialCenterX, dialCenterY)
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
-        widgets[dialName] = dial
-        self.widgetObjects.append(dial)
         
 class Compressor(Effect):
     def __init__(self, slot):
         self.ratio = 1
         self.threshold = -4
         self.attack = 0.5
-        super().__init__(slot)
-        super().drawTitle("compressor")
-        self.createRatioDial()
-        self.createThresholdDial()
-        self.createAttackDial()
+        super().__init__("compressor", slot)
+
+        super().buildDial(
+            name = f"compressor{self.slot}Attack", 
+            centerX = self.topLeftX + params.panelWidth * 1/4,
+            centerY = self.topLeftY + params.panelHeight / 8,
+            diameter = 30,
+            minValue = 1e-9,
+            maxValue = 5,
+            sourceObj = self,
+            parameter = "attack",
+            label="attack "
+        )
+        super().buildDial(
+            name = f"compressor{self.slot}Threshold", 
+            centerX = self.topLeftX + params.panelWidth * 2/4,
+            centerY = self.topLeftY + params.panelHeight / 8,
+            diameter = 30,
+            minValue = -10,
+            maxValue = 0,
+            sourceObj = self,
+            parameter = "threshold",
+            label="thresh "
+        )
+        super().buildDial(
+            name = f"compressor{self.slot}Ratio", 
+            centerX = self.topLeftX + params.panelWidth * 3/4,
+            centerY = self.topLeftY + params.panelHeight / 8,
+            diameter = 30,
+            minValue = 1,
+            maxValue = 20,
+            sourceObj = self,
+            parameter = "ratio",
+            label = "ratio ",
+            ratioRamp = 2
+        )
             
     def process(self, signal, frames):
         return signal
-    
-    def createAttackDial(self):
-        dialCenterX = (self.topLeftX + (params.panelWidth *1/4))
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        dialDiameter = 30
-        minAttackValue = 1e-9 
-        maxAttackValue = 5
-        dialName = f"compressor{self.slot}Attack"
-        self.addDialToValues(dialName, minAttackValue, maxAttackValue, dialCenterX, dialCenterY)
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minAttackValue, maxAttackValue, dialName, label="attack ", units="", isADSR=False, sourceObj=self, parameter="attack")
-        dial.ratioRamp = 1
-        widgets[dialName] = dial
-        self.widgetObjects.append(dial)
-
-    def createThresholdDial(self):
-        dialCenterX = (self.topLeftX + (params.panelWidth *2/4))
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        dialDiameter = 30
-        minThresholdValue = -10
-        maxThresholdValue = 0
-        dialName = f"compressor{self.slot}Threshold"
-        super().addDialToValues(dialName, minThresholdValue, maxThresholdValue, dialCenterX, dialCenterY)
-
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minThresholdValue, maxThresholdValue, dialName, label="thresh ", units="", isADSR=False, sourceObj=self, parameter="threshold")
-        dial.ratioRamp = 1
-        widgets[dialName] = dial
-        self.widgetObjects.append(dial)
-
-    def createRatioDial(self):
-        dialCenterX = (self.topLeftX + (params.panelWidth *3/4))
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        dialDiameter = 30
-        minRatioValue = 1 
-        maxRatioValue = 20
-
-        dialName = f"compressor{self.slot}Ratio"
-        self.addDialToValues(dialName, minRatioValue, maxRatioValue, dialCenterX, dialCenterY)
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minRatioValue, maxRatioValue, dialName, label="ratio ", units="", isADSR=False, sourceObj=self, parameter="ratio")
-        dial.ratioRamp = 2
-        widgets[dialName] = dial
-        self.widgetObjects.append(dial)
-
-    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
-        dialValues[key] = {
-            'curr': 0,
-            'min': minValue,
-            'max': maxValue,
-            'centerX': centerX,
-            'centerY': centerY
-        }
-
 
 class Filter(Effect):
     def __init__(self, slot):
@@ -1127,11 +1071,34 @@ class Filter(Effect):
         self.prevFilteredSample = 0
         self.type = "low-pass"
 
-        super().__init__(slot)
-        super().drawTitle("filter")
-        self.createDryWetDial()
-        self.createCutoffDial()
-        self.createFilterTypeDropdown()
+        super().__init__("filter", slot)
+        super().buildDial(
+            name = f"filter{self.slot}Cutoff", 
+            centerX = self.topLeftX + params.panelWidth / 2,
+            centerY = self.topLeftY + params.panelHeight / 8,
+            diameter = 30,
+            minValue = 1e-9,
+            maxValue = 10_000,
+            sourceObj = self,
+            parameter = "cutoff",
+            label="cutoff ",
+            ratioRamp = 4
+        )
+        pad = {'x': 83, 'y': 10}
+        super().buildDial(
+            name = f"filter{self.slot}DryWet", 
+            centerX = self.topLeftX + params.panelWidth /2 + pad['x'],
+            centerY = self.topLeftY + params.panelHeight / 8 + pad['y'],
+            diameter = 20,
+            minValue = 0,
+            maxValue = 1,
+            sourceObj = self,
+            parameter = "mix",
+            label="mix "
+        )
+        options = ["low-pass", "high-pass"]
+        super().createDropdownListener(options)
+        #self.createDropdownListener()
 
     def process(self, signal, frames):
         secondsPerSample = 1 / params.samplerate 
@@ -1157,85 +1124,6 @@ class Filter(Effect):
             wet = signal*self.mix
 
         return dry+wet
-
-    def createFilterTypeDropdown(self):
-        xPad = 10
-        yPad = 30
-        typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
-        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
-        canvas.tag_bind(typeText, "<Button-1>", lambda event: createPopup(event.x, event.y, "filter", self.slot, sourceObj=self))
-
-        self.canvasObjects.append(typeText)
-        self.canvasObjects.append(self.currentTypeText)      
-
-    def onSelectFilterType(self, event, selectedType):
-        removePopup()
-        self.type = selectedType
-        canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
-        print(f"Filter type is {self.type} in {self.slot}")
-
-
-    def createCutoffDial(self):
-        dialCenterX = (self.topLeftX + (params.panelWidth *1/2))
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2)
-        dialDiameter = 30
-        minCutoffValue = 0.01
-        maxCutoffValue = 20_000
-
-        dialName = f"filter{self.slot}Cutoff"
-        self.addDialToValues(dialName, minCutoffValue, maxCutoffValue, dialCenterX, dialCenterY)
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minCutoffValue, maxCutoffValue, dialName, label="cutoff ", units="", isADSR=False, sourceObj=self, parameter="cutoff")
-        dial.ratioRamp = 4
-        widgets[dialName] = dial
-        self.widgetObjects.append(dial)
-        # dialDiameter = 30
-        # minFeedbackValue = 0
-        # maxFeedbackValue = 1
-
-        # dialName = f"delay{self.slot}Feedback"
-        # self.addDialToValues(dialName, minFeedbackValue, maxFeedbackValue, dialCenterX, dialCenterY)
-
-        # #print(f"again {dialCenterY=}")
-        # #def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, units, isADSR):
-
-        # dial = Dial(dialCenterX, dialCenterY, dialDiameter, minFeedbackValue, maxFeedbackValue, dialName, label="feedback ", units="", isADSR=False, sourceObj=self, parameter="feedback")
-
-        # widgets[dialName] = dial
-        # print(f'start extent= {self.mix*360}')
-        # self.widgetObjects.append(dial)
-
-
-
-
-
-
-
-
-
-    def createDryWetDial(self):
-        print(f'{self.topLeftX=}{self.topLeftY=}')
-        xPad = 83
-        yPad = 10
-        dialCenterX = (self.topLeftX + (params.panelWidth / 2) + xPad)
-        dialCenterY = (self.topLeftY + (params.panelHeight/4) / 2 + yPad)
-        dialDiameter = 20
-        dialName = f"filter{self.slot}DryWet"
-        minDryWet = 0
-        maxDryWet = 1
-        self.addDialToValues(dialName, minDryWet, maxDryWet, dialCenterX, dialCenterY)
-        dial = Dial(dialCenterX, dialCenterY, dialDiameter, minDryWet, maxDryWet, dialName, label="mix ", units="", isADSR=False, sourceObj=self, parameter="mix")
-        widgets[dialName] = dial
-        self.widgetObjects.append(dial)
-
-    # probaly but this function into parent
-    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
-        dialValues[key] = {
-            'curr': 0,
-            'min': minValue,
-            'max': maxValue,
-            'centerX': centerX,
-            'centerY': centerY
-        }
 
 # NOTES PLAYED/RELEASED
 def notePlayed(globalNoteID):
