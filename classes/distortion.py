@@ -3,11 +3,13 @@ import numpy as np
 from .effect import Effect
 
 class Distortion(Effect):
-    def __init__(self, slot):
+    #    def __init__(self, title, slot, canvas, effectObjs, widgets, dialValues):
+
+    def __init__(self, slot, canvas, state):
         self.type = None
         self.overdrive = 0
         self.mix = 0.5
-        super().__init__(effectType="distortion", slot=slot)
+        super().__init__("distortion", slot, canvas, state)
         super().buildDial(
             name = f"distortion{self.slot}Overdrive", 
             centerX = self.topLeftX + params.panelWidth / 2,
@@ -22,7 +24,7 @@ class Distortion(Effect):
         super().createDryWetDial()
        
         options = ["soft clip", "hard clip", "half wave"]
-        super().createDropdownListener(self, options)
+        super().createDropdownListener(options)
 
     def process(self, signal, frames):
         signal = signal * (1 + self.overdrive * self.mix)

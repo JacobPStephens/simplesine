@@ -9,3 +9,6 @@ from .filter import Filter
 from .modulation import Modulation
 from .oscillator import Oscillator
 from .envelope import Envelope
+
+from .dial import Dial
+from .dropdown import Dropdown

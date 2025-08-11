@@ -32,6 +32,9 @@ for i in range(len(keyboardKeys)):
 
 
 
+def colorChange(event, canvas, piece, color):
+    canvas.itemconfig(piece, fill=color)
+
 def decibelsToAmplitude(decibels):
     return 2**(decibels / 10)
 

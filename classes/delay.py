@@ -3,14 +3,14 @@ import numpy as np
 from .effect import Effect
 
 class Delay(Effect):
-    def __init__(self, slot):
+    def __init__(self, slot, canvas, state):
         self.time = 0.5
         self.feedback = 0
         self.mix = 0.5
         self.delaySamples = int(params.samplerate * self.time)
         self.delayBuffer = np.zeros(self.delaySamples)
         self.delayIdx = 0
-        super().__init__("delay", slot)
+        super().__init__("delay", slot, canvas, state)
 
         super().buildDial(
             name = f"delay{self.slot}Time", 

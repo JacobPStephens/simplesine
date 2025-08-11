@@ -3,8 +3,8 @@ from .modulation import Modulation
 
 
 class Envelope(Modulation):
-    def __init__(self, slot):
-        super().__init__(title="envelope", slot=slot)
+    def __init__(self, slot, canvas, state):
+        super().__init__("envelope", slot, canvas, state)
         self.slot = slot
         self.attack = 1
         self.decay = 1
@@ -14,7 +14,6 @@ class Envelope(Modulation):
 
         xPad = -15
         super().buildDial(
-            self,
             name = f"envelope{self.slot}Attack", 
             centerX = self.topLeftX + params.panelWidth * 1/6 + xPad,
             centerY = self.topLeftY + params.panelHeight / 8,
@@ -28,7 +27,6 @@ class Envelope(Modulation):
         )
 
         super().buildDial(
-            self,
             name = f"envelope{self.slot}Decay", 
             centerX = self.topLeftX + params.panelWidth * 2/6 + xPad,
             centerY = self.topLeftY + params.panelHeight / 8,
@@ -42,7 +40,6 @@ class Envelope(Modulation):
         )
 
         super().buildDial(
-            self,
             name = f"envelope{self.slot}Sustain", 
             centerX = self.topLeftX + params.panelWidth * 3/6 + xPad,
             centerY = self.topLeftY + params.panelHeight / 8,
@@ -55,7 +52,6 @@ class Envelope(Modulation):
         )
 
         super().buildDial(
-            self,
             name = f"envelope{self.slot}Release", 
             centerX = self.topLeftX + params.panelWidth * 4/6 + xPad,
             centerY = self.topLeftY + params.panelHeight / 8,

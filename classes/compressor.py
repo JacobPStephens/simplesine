@@ -2,11 +2,11 @@ import params
 from .effect import Effect
 
 class Compressor(Effect):
-    def __init__(self, slot):
+    def __init__(self, slot, canvas, state):
         self.ratio = 1
         self.threshold = -4
         self.attack = 0.5
-        super().__init__("compressor", slot)
+        super().__init__("compressor", slot, canvas, state)
 
         super().buildDial(
             name = f"compressor{self.slot}Attack", 

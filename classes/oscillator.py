@@ -2,15 +2,14 @@ import params
 from .modulation import Modulation
 
 class Oscillator(Modulation):
-    def __init__(self, slot):
-        super().__init__(title="oscillator", slot=slot)
+    def __init__(self, slot, canvas, state):
+        super().__init__("oscillator", slot, canvas, state)
         self.slot = slot
         self.rate = 50
         self.depth = 0.5
         self.param = None
 
         super().buildDial(
-            self,
             name = f"oscillator{self.slot}Rate", 
             centerX = self.topLeftX + params.panelWidth * 1/4,
             centerY = self.topLeftY + params.panelHeight / 8,
@@ -25,7 +24,6 @@ class Oscillator(Modulation):
         )
 
         super().buildDial(
-            self,
             name = f"oscillator{self.slot}Depth", 
             centerX = self.topLeftX + params.panelWidth * 2/4,
             centerY = self.topLeftY + params.panelHeight / 8,

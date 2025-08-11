@@ -3,13 +3,13 @@ import numpy as np
 from .effect import Effect
 
 class Filter(Effect):
-    def __init__(self, slot):
+    def __init__(self, slot, canvas, state):
         self.mix = 0.5
         self.cutoff = 1000
         self.prevFilteredSample = 0
         self.type = "low-pass"
 
-        super().__init__("filter", slot)
+        super().__init__("filter", slot, canvas, state)
         super().buildDial(
             name = f"filter{self.slot}Cutoff", 
             centerX = self.topLeftX + params.panelWidth / 2,

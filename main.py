@@ -4,208 +4,129 @@ import sounddevice as sd
 import threading, mido, utils, params, time, os
 
 
-import classes.distortion as distortion
+from classes import (
+    PanelComponent,
+    Effect,
+    Distortion,
+    Delay,
+    Compressor,
+    Filter,
+    Modulation,
+    Oscillator,
+    Envelope,
+    Dial,
+    Dropdown
+)
 
-# global synth settings
+def main():
+    global lock, stream, state
+    os.system('xset r off')
+    state = State()
+
+    buildGUI()
+    lock = threading.Lock()
+    
+    for name in ['attack', 'decay', 'sustain', 'release']:
+        dialType = state.dialValues[name]
+        label = ""
+        if name == "sustain":
+            units = ""
+        else:
+            units = "s"
+        state.widgets[name] = Dial(dialType['centerX'], dialType['centerY'], params.dialWidth, dialType['min'], dialType['max'], name, label="", canvas=canvas, state=state, units=units, isADSR=True, ratioRamp=2)
+
+
+    state.widgets['volume'] = Slider('volume')
+    state.widgets['frequency'] = Slider('frequency')
+
+    # bind keyboard input to callback function
+    
+    root.bind("<KeyPress>", state.inputObj.onKeyPressed)
+    root.bind("<KeyRelease>", state.inputObj.onKeyReleased)
+    root.bind("<Motion>", state.inputObj.mouseMotion)
+    root.bind("<ButtonRelease-1>", state.inputObj.mouseReleased)
+    root.bind("<Button-3>", state.inputObj.mouseSecondaryPressed)
+
+    root.after(500, draw)
+    # listen for midi input
+    midiThread = threading.Thread(target=state.inputObj.midiListener)
+    midiThread.start()
+    # start audio stream
+    stream = sd.OutputStream(
+    samplerate=params.samplerate,
+    channels=2, 
+    callback=audioCallback, 
+    blocksize=params.blocksize
+    )
+    stream.start()
+
+    root.mainloop()
+    os.system('xset r on')
+
+# global synth settings -- maybe don't need adsr here
 attack = params.defaultAttack
 decay = params.defaultDecay
 sustain = params.defaultSustain
 release = params.defaultRelease
 peakVolume = params.peakVolume
 volume = params.volume
-
 lowestNote = params.defaultLowestNote
 
 
-class Storage:
+class State:
     def __init__(self):
+        self.waveType = "sine"
+        self.effectObjs = [None] * 4
+        self.modObjs = [None] * 4
         self.dropdowns = []
+        self.widgets = {}
+        self.inputObj = UserInput(self.widgets, self)
 
+        self.activeNotes = []
 
-storage = Storage()
-
-
-# tmp = int(params.samplerate * params.delayTime)
-# print(f'{tmp=}{type(tmp)=}')
-# delaySamples = int(params.samplerate * params.delayTime)
-# delayBuffer = np.zeros(delaySamples)
-
-dialValues = {
-    'attack': {
-        'curr': params.defaultAttack,
-        'min': params.minAttack,
-        'max': params.maxAttack,
-        'centerX': 260,
-        'centerY': 260
-    },
-    'decay': {
-        'curr': params.defaultDecay,
-        'min': params.minDecay,
-        'max': params.maxDecay,
-        'centerX': 353.33,
-        'centerY': 260
-    },
-    'sustain': {
-        'curr': params.defaultSustain,
-        'min': params.minSustain,
-        'max': params.maxSustain,
-        'centerX': 446.66,
-        'centerY': 260
-    },
-    'release': {
-        'curr': params.defaultRelease,
-        'min': params.minRelease,
-        'max': params.maxRelease,
-        'centerX': 540,
-        'centerY': 260
-    }
-}
-sliderValues = {
-    "volume": {
-        "curr": params.volume,
-        "min": params.minVolume,
-        "max": params.maxVolume
-    },
-    "frequency": {
-        "curr": params.freq,
-        "min": params.minFreq,
-        "max": params.maxFreq
-    }
-}
-
-        
-
-class PanelComponent:
-    def __init__(self, title, slot):
-        self.title = ""
-        self.canvasObjects = []
-        self.rectCorners = params.effectRectPositions[slot]
-        self.XCorners = params.effectXPositions[slot]
-        self.topLeftX = params.effectRectPositions[slot][0]
-        self.topLeftY = params.effectRectPositions[slot][1]
-        self.widgetObjects = []
-        self.dropdown = None
-        self.title = title
-        self.buildRectangle()
-        self.buildX()
-        self.drawTitle()
-
-    def buildRectangle(self):
-        panelObj = canvas.create_rectangle(self.rectCorners, fill=params.primaryToneDark)
-        self.canvasObjects.append(panelObj)
-
-    def buildX(self):
-        x_bgObj = canvas.create_rectangle(self.XCorners, fill=params.secondaryToneLight, activefill="white", outline=params.secondaryToneDark, width=1.5)
-        x_txtObj = canvas.create_text((self.XCorners[0]+self.XCorners[2])/2, (self.XCorners[1]+self.XCorners[3])/2, text="x", fill=params.primaryToneLight,  font=("Terminal", 14))
-        self.canvasObjects.append(x_bgObj)
-        self.canvasObjects.append(x_txtObj)
-
-        # add color change on mouse-over
-        canvas.tag_bind(x_txtObj, "<Enter>", lambda event, obj=x_bgObj, color="white": colorChange(event, obj, color))
-        canvas.tag_bind(x_txtObj, "<Leave>", lambda event, obj=x_bgObj, color=params.secondaryToneLight: colorChange(event, obj, color))
-        # add destroyTag to both bg and txt objects
-        canvas.tag_bind(x_bgObj, "<Button-1>", self.destroy)
-        canvas.tag_bind(x_txtObj, "<Button-1>", self.destroy)
-
-    def drawTitle(self):
-        topPad = 10
-        titleTxt = canvas.create_text(self.topLeftX+(params.panelWidth/2), self.topLeftY+topPad, text=self.title, font=("Terminal", 12, 'bold'), fill=params.primaryToneLight)
-        self.canvasObjects.append(titleTxt)
-
-    def destroy(self, event):
-        for canvasItem in self.canvasObjects:
-            canvas.delete(canvasItem)
-        for widgetItem in self.widgetObjects:
-            widgetItem.destroy()
-        effectObjs[self.slot-4] = None
-
-        if self.dropdown:
-            self.dropdown.removeDropdown()
-
-    def buildDial(self, name, centerX, centerY, diameter, minValue, maxValue, sourceObj, parameter, label="", units="", isADSR=False, ratioRamp=1):
-        self.addDialToValues(name, minValue, maxValue, centerX, centerY)
-        dial = Dial(centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj, parameter, ratioRamp)
-        widgets[name] = dial
-        sourceObj.widgetObjects.append(dial)
-
-    def addDialToValues(self, key, minValue, maxValue, centerX, centerY):
-        dialValues[key] = {
-            'curr': 0,
-            'min': minValue,
-            'max': maxValue,
-            'centerX': centerX,
-            'centerY': centerY,
+        self.dialValues = {
+            'attack': {
+                'curr': params.defaultAttack,
+                'min': params.minAttack,
+                'max': params.maxAttack,
+                'centerX': 260,
+                'centerY': 260
+            },
+            'decay': {
+                'curr': params.defaultDecay,
+                'min': params.minDecay,
+                'max': params.maxDecay,
+                'centerX': 353.33,
+                'centerY': 260
+            },
+            'sustain': {
+                'curr': params.defaultSustain,
+                'min': params.minSustain,
+                'max': params.maxSustain,
+                'centerX': 446.66,
+                'centerY': 260
+            },
+            'release': {
+                'curr': params.defaultRelease,
+                'min': params.minRelease,
+                'max': params.maxRelease,
+                'centerX': 540,
+                'centerY': 260
+            }
         }
-    def createDropdownListener(self, options):
-        xPad = 10
-        yPad = 30
-        typeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad, text="type", font=('Terminal', 10, 'bold', 'underline'), anchor ="w", fill=params.primaryToneLight, activefill="white")
-        canvas.tag_bind(typeText, "<Button-1>", lambda event, options=options: self.initDropdown(event, options))
+        self.sliderValues = {
+            "volume": {
+                "curr": params.volume,
+                "min": params.minVolume,
+                "max": params.maxVolume
+            },
+            "frequency": {
+                "curr": params.freq,
+                "min": params.minFreq,
+                "max": params.maxFreq
+            }
+        }
 
-        self.currentTypeText = canvas.create_text(self.topLeftX + xPad, self.topLeftY + yPad + 20, text="None", font=('Terminal', 7),anchor="w", fill=params.primaryToneLight)
-        self.canvasObjects.append(typeText)
-        self.canvasObjects.append(self.currentTypeText)    
-    
-    def initDropdown(self, event, options):
-        # create dropdown and remember it in case of removal through "X" button
-        self.dropdown = Dropdown(event.x, event.y, options, self.slot, "effect", self.onSelectOption)
-
-    def onSelectOption(self,event, selectedOption, slot, sourceObj):
-        self.type = selectedOption
-        canvas.itemconfig(self.currentTypeText, text=f'{self.type}')
-        sourceObj.removeDropdown()
-
-#pitch = b
-
-# variables that are changing live should be globals in main.
-# otherwise, put to params that get changed eveyr start
-
-def main():
-    global lock, activeNotes, stream, inputObj, widgets
-
-    os.system('xset r off')
-    
-    buildGUI()
-
-    activeNotes = []
-    lock = threading.Lock()
-
-    # build widgets 
-    widgets = {}
-    # ADSR knobs
-    
-    for name in ['attack', 'decay', 'sustain', 'release']:
-        dialType = dialValues[name]
-        label = ""
-        if name == "sustain":
-            units = ""
-        else:
-            units = "s"
-        widgets[name] = Dial(dialType['centerX'], dialType['centerY'], params.dialWidth, dialType['min'], dialType['max'], name, label="", units=units, isADSR=True, ratioRamp=2)
-
-        #widgets[name] = Dial(name)
-
-    widgets['volume'] = Slider('volume')
-    widgets['frequency'] = Slider('frequency')
-
-    # bind keyboard input to callback function
-    inputObj = UserInput(widgets)
-    root.bind("<KeyPress>", inputObj.onKeyPressed)
-    root.bind("<KeyRelease>", inputObj.onKeyReleased)
-    root.bind("<Motion>", inputObj.mouseMotion)
-    root.bind("<ButtonRelease-1>", inputObj.mouseReleased)
-    root.bind("<Button-3>", inputObj.mouseSecondaryPressed)
-
-    root.after(500, draw)
-    # listen for midi input
-    midiThread = threading.Thread(target=inputObj.midiListener)
-    midiThread.start()
-    # start audio stream
-    stream = sd.OutputStream(samplerate=params.samplerate, channels=2, callback=audioCallback, blocksize=params.blocksize)
-    stream.start()
-
-    root.mainloop()
-    os.system('xset r on')
 
 def audioCallback(outdata, frames, time_info, status):
     global drawingSignal
@@ -219,9 +140,9 @@ def audioCallback(outdata, frames, time_info, status):
     signal = np.zeros(frames, dtype=np.float32)
     with lock:
         startTime = time.time()
-        for note in activeNotes[:]:
+        for note in state.activeNotes[:]:
             if note.dead:
-                activeNotes.remove(note)
+                state.activeNotes.remove(note)
                 continue
             signal = signal + note.generate(frames, startTime)
             #signal = normalize(signal, note.generate(frames, startTime)) 
@@ -238,7 +159,7 @@ def audioCallback(outdata, frames, time_info, status):
         params.smoothedGain = params.smoothedGain * (1 - params.alphaRelease) + targetGain * params.alphaRelease 
 
     params.smoothedGain = 1
-    signal *= params.smoothedGain * sliderValues['volume']['curr'] * params.masterDamp
+    signal *= params.smoothedGain * state.sliderValues['volume']['curr'] * params.masterDamp
     peak = np.max(np.abs(signal))
 
    
@@ -246,12 +167,12 @@ def audioCallback(outdata, frames, time_info, status):
         print(f"clip {peak}")
 
     # # apply modulations
-    # for mod in modObjs:
+    # for mod in state.modObjs:
     #     if mod:
     #         mod.updateParam()
 
     # apply effects
-    for effect in effectObjs:
+    for effect in state.effectObjs:
         if effect:
             signal = effect.process(signal, frames)
     
@@ -261,144 +182,53 @@ def audioCallback(outdata, frames, time_info, status):
     outdata[:] = np.repeat(signal.reshape(-1, 1), 2, axis=1)
 
 def draw():
-
-    ceiling = 50
-    floor = -50
     midPt = 10+(params.panelHeight*3/8)
-    incr = params.waveVisualIncrease[waveType]
-
+    incr = params.waveVisualIncrease[state.waveType]
     pad = 0
     leftEdge = 210 + pad
     rightEdge = 590 - pad
     numPoints = rightEdge - leftEdge
-
-    # 3/8ths of way down panel + border
-    #canvas.create_line(leftEdge, 305*3/8+10, rightEdge, 305*3/8+10, fill=params.primaryToneDark, width=2)
-
-    #canvas.create_line(100, 200, 200, 200, fill="orange")
-    #canvas.create_line(210, 100, 590, 100, fill="yellow")
-    #canvas.create_line(100, 200, 200, 200, fill="yellow")
-
     points = []
     for x, y in enumerate(drawingSignal[numPoints::-1]):
         points.append(x+leftEdge) 
-
         heightForPoint = y*incr
-
-        # heightForPoint = max(floor, min(heightForPoint, ceiling))
-        # # if heightForPoint > floor or heightForPoint < ceiling:
-        # #     heightForPoint = m
-        # #     print(f'{y=} out of bounds')
-        points.append(midPt + heightForPoint) # this equation doesn't work how I think it does
+        points.append(midPt + heightForPoint)
     canvas.delete("wave")
-    
 
     canvas.create_line(points, fill=params.primaryToneLight, tag="wave", width=params.sineWidth)
-
-
     root.after(5, draw)
-
-
-
-#EFFECTS: list[callable] = [None] * 4
-
-effectObjs = [None] * 4
-modObjs = [None] * 4
-waveType = "sine"
-
-popupObjects = []
-
-def removePopup():
-    for obj in popupObjects:
-        canvas.delete(obj)
 
 
 # called as "callback" function in Dropdown class
 def onSelectMod(event, modType, slot, sourceObj):
     print(f"Clicked on {modType} goes to slot {slot}")  
     if modType == "oscillator":
-        modObj = Oscillator(slot)
+        modObj = Oscillator(slot, canvas, state)
     elif modType == "envelope":
-        modObj = Envelope(slot)
+        modObj = Envelope(slot, canvas, state)
     
-    modObjs[slot] = modObj
+    state.modObjs[slot] = modObj
 
     sourceObj.removeDropdown()
     # instantiate object of corresponding effect class
 
 # called as "callback" function in Dropdown class
 def onSelectEffect(event, effectType: str, slot: int, sourceObj):
-
     print(f"Clicked on {effectType} goes to slot {slot}")  
 
     if effectType == "distortion":
-        effectObj = distortion(slot)
+        effectObj = Distortion(slot, canvas, state)
+
+        #effectObj = Distortion(slot)
     elif effectType == "delay":
-        effectObj = Delay(slot)
+        effectObj = Delay(slot, canvas, state)
     elif effectType == "compressor":
-        effectObj = Compressor(slot)
+        effectObj = Compressor(slot, canvas, state)
     elif effectType == "filter":
-        effectObj = Filter(slot)
+        effectObj = Filter(slot, canvas, state)
 
-    effectObjs[slot-4] = effectObj
+    state.effectObjs[slot-4] = effectObj
     sourceObj.removeDropdown()
-
-    # effectNameToClass = {
-    #     "distortion": Distortion,
-    #     "delay": Delay,
-    #     "compressor": Compressor,
-    #     "filter": Filter
-    # # instantiate object of corresponding effect class
-    # EffectClass = effectNameToClass[effectType]
-    # effectObjs[slot-4] = EffectClass(slot)
-
-
-
-def colorChange(event, piece, color):
-    canvas.itemconfig(piece, fill=color)
-
-# def onLeaveColorChange(event, piece, color):
-#     canvas.itemconfig(piece, fill=params.primaryToneDark)
-
-
-class Dropdown:
-    global canvas, storage
-    def __init__(self, x: int, y: int, options: list[str], slot: int, panelType: str, callback: callable):
-        self.options = options
-        self.objects = []
-        self.removeExistingDropdowns()
-        self.createDropdown(x, y, slot, panelType, callback)
-        storage.dropdowns.append(self)
-
-    def createDropdown(self, x, y, slot, panelType, callback):
-        popupWidth = 80
-        topPadding = 12
-        elementHeight = 25
-
-        for i, option in enumerate(self.options):
-            #piece = canvas.create_rectangle(x-(popupWidth/2), y+(delta_y*i), x+(popupWidth/2), y+(delta_y*(i+1)), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
-            piece = canvas.create_rectangle(x-popupWidth/2, y+elementHeight*i, x+popupWidth/2, y+elementHeight*(i+1), fill=params.primaryToneDark, activefill=params.primaryToneLight, outline="black")
-            textObj = canvas.create_text(x, y+elementHeight*i+topPadding,text=option, font=("Terminal", 9), fill="white")
-            #textObj = canvas.create_text(x, y+(delta_y*i)+padFromTop,text=effectText, font=("Terminal", 9), fill="white")
-            canvas.tag_bind(piece, "<Button-1>", lambda event, optionName=option, slotArg=slot: callback(event, optionName, slotArg, self))
-            canvas.tag_bind(textObj, "<Button-1>", lambda event, optionName=option, slotArg=slot: callback(event, optionName, slotArg, self))
-
-            canvas.tag_bind(textObj, "<Enter>", lambda event, obj=piece, color=params.primaryToneLight: colorChange(event, obj, color))
-            canvas.tag_bind(textObj, "<Leave>", lambda event, obj=piece, color=params.primaryToneDark: colorChange(event, obj, color))
-
-            self.objects.append(piece)
-            self.objects.append(textObj)        
-
-    def removeDropdown(self):
-        for obj in self.objects:
-            canvas.delete(obj)
-        self.objects = []
-        print('delted popup line 286s')
-    
-    def removeExistingDropdowns(self):
-        for dropdown in storage.dropdowns:
-            dropdown.removeDropdown()
-        storage.dropdowns = []
 
 def onPanelClick(event, panelTag):
     x, y = event.x, event.y
@@ -416,24 +246,23 @@ def onPanelClick(event, panelTag):
         options = ["distortion", "compressor", "delay", "filter"] 
         callback = onSelectEffect
 
-    Dropdown(x, y, options, slot, panelType, callback)
+    Dropdown(x, y, options, slot, panelType, callback, canvas, state)
 
 def onWaveformTitleClick(event, titleObj):
-    global waveType
     waves = ["sine", "square", "saw"]
-    waveType = canvas.itemcget(titleObj, "text")
+    state.waveType = canvas.itemcget(titleObj, "text")
 
-    waveIdx = waves.index(waveType)
+    waveIdx = waves.index(state.waveType)
     newIdx = (waveIdx + 1) % len(waves)
     newWave = waves[newIdx]
 
-    diffCharacters = len(newWave) - len(waveType)
+    diffCharacters = len(newWave) - len(state.waveType)
     distancePerChar = 12
 
     canvas.move(titleObj, distancePerChar * diffCharacters, 0)
     canvas.itemconfig(titleObj, text=newWave, justify="left")
 
-    waveType = newWave
+    state.waveType = newWave
 
 def buildGUI():
     global root, canvas, keysGUI
@@ -528,76 +357,6 @@ def buildGUI():
 
     canvas.pack()
    
-class Dial:
-    def __init__(self, centerX, centerY, diameter, minValue, maxValue, name, label, units, isADSR, sourceObj=None, parameter=None, ratioRamp=1):
-        self.centerX = centerX
-        self.centerY = centerY
-        self.diameter = diameter
-        self.minValue = minValue
-        self.maxValue = maxValue
-        self.name = name
-        self.label = label
-        self.units = units
-        self.isADSR = isADSR
-        self.ratioRamp = ratioRamp
-        self.sourceObj = sourceObj
-        self.parameter = parameter
-        self.createDial()
-
-    def createDial(self):
-        if self.isADSR:
-            textPadding = params.textPaddingADSR
-        else:
-            textPadding = params.textPaddingSmall
-        startExtent = self.getStartExtent()
-        tagName = f'{self.name}_tag'
-        dialCoords = [self.centerX-(self.diameter/2), self.centerY-(self.diameter/2), self.centerX+(self.diameter/2), self.centerY+(self.diameter/2)]
-        self.bg = canvas.create_oval(dialCoords, fill=params.primaryToneDark, outline="black", width=1.5, tags=tagName)
-        self.arc = canvas.create_arc(dialCoords, fill=params.primaryToneLight, start= 270, extent= startExtent, tags=tagName)
-        if self.isADSR:
-            self.text = canvas.create_text(self.centerX,self.centerY+(self.diameter/2)+textPadding, text=f"{dialValues[self.name]['curr']:.2f}{self.units}", fill="white")
-        else:
-            self.text = canvas.create_text(self.centerX,self.centerY+(self.diameter/2)+textPadding, text=f"{self.label}{dialValues[self.name]['curr']:.2f}{self.units}", font=("TKDefaultFont", 6), fill="white")
-        canvas.tag_bind(tagName, "<Button-1>", lambda event: inputObj.mouseClicked(event, self.name))       
-
-
-    def update(self, clickPoint, mousePoint):
-        # calculate dial angle using user's mouse location
-        verticalDiff = clickPoint[1] - mousePoint[1]
-        clampedDiff = min(self.diameter, max(-self.diameter, verticalDiff))
-        dialAngle = ((clampedDiff + self.diameter) / (abs(2*self.diameter) + 1e-9)) *-360
-        # update dial GUI angle
-        canvas.itemconfig(self.arc, extent=dialAngle)
-        # calculate current value of ADSR dial given GUI angle
-        minDialValue = dialValues[self.name]['min']
-        maxDialValue = dialValues[self.name]['max']
-
-        if self.isADSR:
-            dialValues[self.name]['curr'] = minDialValue + (maxDialValue - minDialValue) * abs(dialAngle/360)**self.ratioRamp
-            canvas.itemconfig(self.text, text=f'{self.label}{dialValues[self.name]['curr']:.2f}{self.units}')
-
-        else:
-            updatedValue = minDialValue + (maxDialValue - minDialValue) * abs(dialAngle/360)**self.ratioRamp
-            setattr(self.sourceObj, self.parameter, updatedValue)
-            canvas.itemconfig(self.text, text=f'{self.label}{getattr(self.sourceObj,self.parameter):.2f}{self.units}')
-
-            if "delay" in self.name:
-                self.sourceObj.delayTimeChanged(updatedValue)
-
-    def destroy(self):
-        canvas.delete(self.bg)
-        canvas.delete(self.arc)
-        canvas.delete(self.text)
-
-    def getStartExtent(self):
-
-        if self.isADSR:
-            currVal = dialValues[self.name]['curr']
-        else:
-            currVal = getattr(self.sourceObj,self.parameter)
-        return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/self.ratioRamp)
-        # return -360 * ((currVal-self.minValue) / (self.maxValue-self.minValue))**(1/self.ratioRamp)
-
 class Slider:
     def __init__(self, name):
         self.name = name
@@ -616,9 +375,9 @@ class Slider:
         textPad = 20
         hitboxSizeMultiplier = 4
 
-        current = sliderValues[self.name]['curr']
-        minimum = sliderValues[self.name]['min']
-        maximum = sliderValues[self.name]['max']
+        current = state.sliderValues[self.name]['curr']
+        minimum = state.sliderValues[self.name]['min']
+        maximum = state.sliderValues[self.name]['max']
 
         normalizedCurrentValue = (current - minimum) / (maximum - minimum)
 
@@ -626,9 +385,9 @@ class Slider:
         self.bg = canvas.create_rectangle(self.left, self.yPos-height, self.right, self.yPos +height, fill=params.primaryToneDark,outline="black")
         #self.knob = canvas.create_rectangle(self.left+(self.right-self.left)/2-knobWidth/2, self.yPos-self.knobHeight , self.left+(self.right-self.left)/2+knobWidth/2, self.yPos+self.knobHeight , fill=params.primaryToneLight,outline="black")
         self.knob = canvas.create_rectangle(self.left+(self.right-self.left)*normalizedCurrentValue-knobWidth/2, self.yPos-self.knobHeight ,self.left+(self.right-self.left)*normalizedCurrentValue+knobWidth/2, self.yPos+self.knobHeight , fill=params.primaryToneLight,outline="black")
-        self.text = canvas.create_text(self.left+(self.right-self.left)/2, self.yPos +textPad, text=f"{self.name}: {sliderValues[self.name]['curr']:.2f}", fill="white")
+        self.text = canvas.create_text(self.left+(self.right-self.left)/2, self.yPos +textPad, text=f"{self.name}: {state.sliderValues[self.name]['curr']:.2f}", fill="white")
         self.hitbox = canvas.create_rectangle(self.left, self.yPos -height*hitboxSizeMultiplier, self.right, self.yPos +height*hitboxSizeMultiplier, fill="", outline="", tag=tagName)
-        canvas.tag_bind(tagName, "<Button-1>", lambda event: inputObj.mouseClicked(event, self.name))
+        canvas.tag_bind(tagName, "<Button-1>", lambda event: state.inputObj.mouseClicked(event, self.name))
 
 
     def update(self, clickPoint, mousePoint):
@@ -640,36 +399,25 @@ class Slider:
         canvas.moveto(self.knob, slider_x-params.sliders[self.name]['knobWidth']/2, params.sliders[self.name]['yPos']-params.sliders[self.name]['knobHeight'])
 
         # so figure out 
-        minParameterValue = sliderValues[self.name]['min']
-        maxParameterValue = sliderValues[self.name]['max']
+        minParameterValue = state.sliderValues[self.name]['min']
+        maxParameterValue = state.sliderValues[self.name]['max']
 
         # how far along the slider_x is between min and max
         sliderPercent = (slider_x-self.left)/(self.right-self.left)
 
         #masterVolume = minParameterValue + (maxParameterValue - minParameterValue) * sliderPercent
-        sliderValues[self.name]['curr'] = minParameterValue + (maxParameterValue - minParameterValue) * sliderPercent
+        state.sliderValues[self.name]['curr'] = minParameterValue + (maxParameterValue - minParameterValue) * sliderPercent
         #volume = params.minVolume + (params.maxVolume - params.minVolume) * sliderPercent
         #print(f"{self.name}: {sliderValues[self.name]['curr']}")
 
 
-        canvas.itemconfig(self.text, text=f"{self.name}: {sliderValues[self.name]['curr']:.2f}")
-
-
-        # 500 - 200 / (300) = 1
-        # 200 - 200 / 300 =  0
-
-
-
-        # slider_x = 200, volume = minVolume
-
-        # slider_x = 500, volume = maxVolume
+        canvas.itemconfig(self.text, text=f"{self.name}: {state.sliderValues[self.name]['curr']:.2f}")
         
         self.left  + (slider_x/self.right)
-        # based on knob position, change global variables
-        pass
+
 
 class UserInput():
-    def __init__(self, widgets):
+    def __init__(self, widgets, state):
         self.mousePoint: tuple[int, int] = None
         self.clickPoint: tuple[int, int] = None
         self.widgets = widgets
@@ -680,11 +428,12 @@ class UserInput():
         self.activeWidget = self.widgets[elementName]
         self.clickPoint = self.mousePoint
 
-        if self.activeWidget.name in sliderValues:
+        if self.activeWidget.name in state.sliderValues:
             self.widgets[self.activeWidget.name].update(self.clickPoint, self.mousePoint)
 
     def mouseSecondaryPressed(self, event):
-        removePopup()
+        pass
+        #removePopup()
 
     def mouseReleased(self, event):
         self.activeWidget = None
@@ -759,10 +508,10 @@ class Note:
 
     def envelope(self, t) -> float:
         #assert all([attack, decay, release]) # remove later
-        attack = dialValues['attack']['curr']
-        decay = dialValues['decay']['curr']
-        sustain = dialValues['sustain']['curr']
-        release = dialValues['release']['curr']
+        attack = state.dialValues['attack']['curr']
+        decay = state.dialValues['decay']['curr']
+        sustain = state.dialValues['sustain']['curr']
+        release = state.dialValues['release']['curr']
 
         ''' Returns correct amplitude of note based on time in envelope '''
         lifetime = t - self.start
@@ -808,14 +557,14 @@ class Note:
         amplitudes = np.linspace(self.prevAmplitude, amplitudes[-1], frames)
         self.prevAmplitude = amplitudes[-1]
 
-        phaseIncrement = 2 * np.pi * (self.freq + sliderValues['frequency']['curr'])/ params.samplerate # radians per sample travelled
+        phaseIncrement = 2 * np.pi * (self.freq + state.sliderValues['frequency']['curr'])/ params.samplerate # radians per sample travelled
         phases = np.arange(frames) * phaseIncrement + self.phase
 
-        if waveType == "sine":
+        if state.waveType == "sine":
             signal = np.sin(phases)
-        elif waveType == "square":
+        elif state.waveType == "square":
             signal = np.sign(np.sin(phases)) * params.squareAudioDamp
-        elif waveType == "saw":
+        elif state.waveType == "saw":
             signal = (2 * ((phases / (2 * np.pi)) % 1) - 1) * params.sawAudioDamp
         signal *= amplitudes
 
@@ -949,189 +698,17 @@ class Note:
 
 
 
-
-# class Delay(Effect):
-#     def __init__(self, slot):
-#         self.time = 0.5
-#         self.feedback = 0
-#         self.mix = 0.5
-#         self.delaySamples = int(params.samplerate * self.time)
-#         self.delayBuffer = np.zeros(self.delaySamples)
-#         self.delayIdx = 0
-#         super().__init__("delay", slot)
-
-#         super().buildDial(
-#             name = f"delay{self.slot}Time", 
-#             centerX = self.topLeftX + params.panelWidth / 3,
-#             centerY = self.topLeftY + params.panelHeight / 8,
-#             diameter = 30,
-#             minValue = 0,
-#             maxValue = 2,
-#             sourceObj = self,
-#             parameter = "time",
-#             label="time "
-#         )
-#         super().buildDial(
-#             name = f"delay{self.slot}Feedback", 
-#             centerX = self.topLeftX + params.panelWidth *2/3,
-#             centerY = self.topLeftY + params.panelHeight / 8,
-#             diameter = 30,
-#             minValue = 0,
-#             maxValue = 1,
-#             sourceObj = self,
-#             parameter = "feedback",
-#             label="feedback "
-#         )
-#         super().createDryWetDial()
-
-#     def process(self, signal, frames):
-#         startReadIdx = (self.delayIdx - self.delaySamples) % self.delaySamples
-#         endReadIdx  = startReadIdx + frames
-#         startWriteIdx = self.delayIdx
-#         endWriteIdx = startWriteIdx + frames
-
-#         # read delay signal from past point in buffer
-#         if endReadIdx <= self.delaySamples:
-#             # block will fit without wrapping
-#             delaySignal = self.delayBuffer[startReadIdx:endReadIdx]
-#         else:
-#             # will wrap; need to split into 2 parts
-#             endPart = self.delayBuffer[startReadIdx:]
-#             samplesFromStart = endReadIdx - self.delaySamples
-#             startPart = self.delayBuffer[:samplesFromStart]
-#             delaySignal = np.concatenate((endPart, startPart))
-
-#         if len(delaySignal) > frames:
-#             delaySignal = delaySignal[:frames] # force shape to be the same
-
-#         writeSignal = signal + (delaySignal * self.feedback)
-#         signal = signal + (delaySignal * self.mix)
-
-#         # write delay signal to current point in buffer
-#         if endWriteIdx <= self.delaySamples:
-#             self.delayBuffer[startWriteIdx:endWriteIdx] = writeSignal.copy()
-#         else:
-#             samplesToEnd = self.delaySamples - startWriteIdx
-#             self.delayBuffer[startWriteIdx:] = writeSignal[:samplesToEnd]
-#             samplesFromStart = frames - samplesToEnd
-#             self.delayBuffer[:samplesFromStart] = writeSignal[samplesToEnd:]
-
-#         self.delayIdx = endWriteIdx % self.delaySamples
-#         return signal
-    
-#     def delayTimeChanged(self, updatedTime):
-#         print(f'in delay time changed... {updatedTime=}')
-#         self.delaySamples = int(params.samplerate * updatedTime)
-#         self.delayBuffer = np.zeros(self.delaySamples)
-#         self.delayIdx = 0
-        
-# class Compressor(Effect):
-#     def __init__(self, slot):
-#         self.ratio = 1
-#         self.threshold = -4
-#         self.attack = 0.5
-#         super().__init__("compressor", slot)
-
-#         super().buildDial(
-#             name = f"compressor{self.slot}Attack", 
-#             centerX = self.topLeftX + params.panelWidth * 1/4,
-#             centerY = self.topLeftY + params.panelHeight / 8,
-#             diameter = 30,
-#             minValue = 1e-9,
-#             maxValue = 5,
-#             sourceObj = self,
-#             parameter = "attack",
-#             label="attack "
-#         )
-#         super().buildDial(
-#             name = f"compressor{self.slot}Threshold", 
-#             centerX = self.topLeftX + params.panelWidth * 2/4,
-#             centerY = self.topLeftY + params.panelHeight / 8,
-#             diameter = 30,
-#             minValue = -10,
-#             maxValue = 0,
-#             sourceObj = self,
-#             parameter = "threshold",
-#             label="thresh "
-#         )
-#         super().buildDial(
-#             name = f"compressor{self.slot}Ratio", 
-#             centerX = self.topLeftX + params.panelWidth * 3/4,
-#             centerY = self.topLeftY + params.panelHeight / 8,
-#             diameter = 30,
-#             minValue = 1,
-#             maxValue = 20,
-#             sourceObj = self,
-#             parameter = "ratio",
-#             label = "ratio ",
-#             ratioRamp = 2
-#         )
-                
-#     def process(self, signal, frames):
-#         return signal
-
-# class Filter(Effect):
-#     def __init__(self, slot):
-#         self.mix = 0.5
-#         self.cutoff = 1000
-#         self.prevFilteredSample = 0
-#         self.type = "low-pass"
-
-#         super().__init__("filter", slot)
-#         super().buildDial(
-#             name = f"filter{self.slot}Cutoff", 
-#             centerX = self.topLeftX + params.panelWidth / 2,
-#             centerY = self.topLeftY + params.panelHeight / 8,
-#             diameter = 30,
-#             minValue = 1e-9,
-#             maxValue = 10_000,
-#             sourceObj = self,
-#             parameter = "cutoff",
-#             label="cutoff ",
-#             ratioRamp = 4
-#         )
-#         super().createDryWetDial()
-
-#         options = ["low-pass", "high-pass"]
-#         super().createDropdownListener(options)
-#         #self.createDropdownListener()
-
-#     def process(self, signal, frames):
-#         secondsPerSample = 1 / params.samplerate 
-#         timeConstant = 1 / (2 * np.pi * self.cutoff)
-#         smoothingFactor = secondsPerSample / (secondsPerSample + timeConstant) 
-
-#         filteredSignal = np.zeros(frames)
-#         filteredSignal[0] = self.prevFilteredSample + smoothingFactor  * (signal[0] - self.prevFilteredSample) 
-
-#         for i in range(1, len(signal)):
-#             filteredSignal[i] = filteredSignal[i-1] + (signal[i]-filteredSignal[i-1])*smoothingFactor
-
-#         self.prevFilteredSample = filteredSignal[-1]
-
-#         dry = signal * (1-self.mix)
-#         if self.type == "low-pass":
-#             wet = filteredSignal * self.mix
-
-#         elif self.type == "high-pass":
-#             wet = (signal-filteredSignal) * self.mix
-#         else:
-#             print('unrecognized filter type')
-#             wet = signal*self.mix
-
-#         return dry+wet
-
 # NOTES PLAYED/RELEASED
 def notePlayed(globalNoteID):
     with lock:
         freq = utils.NOTE_TO_FREQ[globalNoteID]
-        activeNotes.append(Note(freq))
+        state.activeNotes.append(Note(freq))
         highlightNote(globalNoteID, "note_on")
 
 def noteReleased(globalNoteID):
     with lock:
         freq = utils.NOTE_TO_FREQ[globalNoteID]
-        for note in activeNotes:
+        for note in state.activeNotes:
             if note.freq == freq and not note.released:
                 note.released = True
         highlightNote(globalNoteID, "note_off")
